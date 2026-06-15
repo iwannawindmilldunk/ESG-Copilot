@@ -1,9 +1,13 @@
-import { DISCLOSURE_TOPICS, SECTION_BY_CATEGORY } from "@/data/disclosureTopics";
+import { DISCLOSURE_STANDARD_ITEMS } from "@/lib/esg/disclosureStandardItems";
+import { getStandardName, resolveSelectedStandardIds } from "@/lib/esg/standards";
+import { TOPIC_MAPPINGS } from "@/lib/esg/topicMappings";
 import type {
   ClassifiableFile,
   DisclosureItem,
+  DisclosureStandardItem,
   DisclosureStatus,
   DocumentCategory,
+  ESGCategory,
   IndicatorIndex,
   IndicatorStatus,
   ReportSection,
@@ -54,6 +58,18 @@ const RISKY_EXPRESSIONS = [
   "无任何风险",
 ];
 
+const SECTION_BY_CATEGORY = {
+  E: "4. 环境责任",
+  S: "5. 社会责任",
+  G: "6. 公司治理",
+} satisfies Record<ESGCategory, string>;
+
+const RISK_RANK: Record<RiskLevel, number> = {
+  低: 0,
+  中: 1,
+  高: 2,
+};
+
 function createId(prefix: string): string {
   const random = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
   return `${prefix}_${random}`;
@@ -61,6 +77,10 @@ function createId(prefix: string): string {
 
 function normalize(value: string): string {
   return value.toLowerCase().replace(/\s+/g, "");
+}
+
+function unique<T>(values: T[]): T[] {
+  return Array.from(new Set(values));
 }
 
 function classifyDocumentCategory(fileName: string): DocumentCategory {
@@ -99,47 +119,68 @@ function inferFileType(file: ClassifiableFile): string {
   return extension ? typeMap[extension] ?? extension.toUpperCase() : "未知";
 }
 
-function hasCategory(files: UploadedFile[], categories: DocumentCategory[]): boolean {
-  return files.some((file) => categories.includes(file.category));
+function maxRiskLevel(items: DisclosureStandardItem[]): RiskLevel {
+  return items.reduce<RiskLevel>(
+    (highest, item) => (RISK_RANK[item.riskLevelIfMissing] > RISK_RANK[highest] ? item.riskLevelIfMissing : highest),
+    "低",
+  );
 }
 
-function getEvidenceFileIds(files: UploadedFile[], categories: DocumentCategory[]): string[] {
-  return files.filter((file) => categories.includes(file.category)).map((file) => file.id);
+function resolveStatus(requiredEvidenceTypes: string[], matchedEvidenceTypes: string[]): DisclosureStatus {
+  if (requiredEvidenceTypes.length === 0) return "已覆盖";
+  if (matchedEvidenceTypes.length === 0) return "缺失";
+
+  const ratio = matchedEvidenceTypes.length / requiredEvidenceTypes.length;
+  return ratio >= 0.67 ? "已覆盖" : "部分覆盖";
 }
 
-function hasTopicKeyword(files: UploadedFile[], keywords: string[]): boolean {
-  return files.some((file) => keywords.some((keyword) => normalize(file.name).includes(normalize(keyword))));
-}
+function buildMissingContent(
+  status: DisclosureStatus,
+  requiredEvidenceTypes: string[],
+  matchedEvidenceTypes: string[],
+): string {
+  const missingEvidenceTypes = requiredEvidenceTypes.filter((type) => !matchedEvidenceTypes.includes(type));
 
-function resolveRisk(status: DisclosureStatus, defaultRiskLevel: RiskLevel): RiskLevel {
-  if (status === "已覆盖") return "低";
-  if (status === "部分覆盖") return defaultRiskLevel === "高" ? "中" : defaultRiskLevel;
-  return defaultRiskLevel;
-}
-
-function buildMissingContent(status: DisclosureStatus, missingContent: string): string {
-  if (status === "已覆盖") {
-    return "暂无明显缺失，建议补充数据口径、审批记录和证据文件编号。";
+  if (missingEvidenceTypes.length === 0) {
+    return "暂无明显缺失，建议在正式披露前补充数据口径、审批记录和证据编号。";
   }
+
+  const missingText = missingEvidenceTypes.join("、");
 
   if (status === "部分覆盖") {
-    return `已有相关材料，但仍需补充：${missingContent}`;
+    return `已匹配部分资料，仍需补充：${missingText}。`;
   }
 
-  return missingContent;
+  return `缺少支撑材料：${missingText}。`;
 }
 
-function itemIds(checklist: DisclosureItem[], category?: "E" | "S" | "G"): string[] {
+function buildRequirementSummary(items: DisclosureStandardItem[]): string {
+  return items.map((item) => `${item.code} ${item.title}：${item.requirementSummary}`).join("；");
+}
+
+function formatStandardReference(standard: DisclosureItem["standards"][number]): string {
+  if (standard.standardId === "cn-exchange-lite") {
+    return `国内交易所：${standard.title}`;
+  }
+
+  return `${standard.code} ${standard.title}`;
+}
+
+function formatChecklistStandardRefs(item: DisclosureItem): string {
+  return item.standards.map(formatStandardReference).join(" / ");
+}
+
+function itemIds(checklist: DisclosureItem[], category?: ESGCategory): string[] {
   return checklist.filter((item) => !category || item.category === category).map((item) => item.id);
 }
 
-function coveredRatio(checklist: DisclosureItem[], category?: "E" | "S" | "G"): string {
+function coveredRatio(checklist: DisclosureItem[], category?: ESGCategory): string {
   const scoped = checklist.filter((item) => !category || item.category === category);
   const covered = scoped.filter((item) => item.status !== "缺失").length;
   return `${covered}/${scoped.length}`;
 }
 
-function missingTopics(checklist: DisclosureItem[], category?: "E" | "S" | "G"): string[] {
+function missingTopics(checklist: DisclosureItem[], category?: ESGCategory): string[] {
   return checklist
     .filter((item) => (!category || item.category === category) && item.status === "缺失")
     .map((item) => item.topic);
@@ -173,18 +214,34 @@ function categoriesSummary(files: UploadedFile[]): string {
     .join("、");
 }
 
-function sectionEvidence(files: UploadedFile[], category: "E" | "S" | "G" | "overview"): string[] {
-  if (category === "overview") {
-    return files.filter((file) => file.category === "公司概况" || file.category === "财务/业务数据").map((file) => file.id);
+function overviewEvidence(files: UploadedFile[]): string[] {
+  return files
+    .filter((file) => file.category === "公司概况" || file.category === "财务/业务数据")
+    .map((file) => file.id);
+}
+
+function evidenceFromItems(items: DisclosureItem[]): string[] {
+  return unique(items.flatMap((item) => item.evidenceFileIds));
+}
+
+function sectionItems(checklist: DisclosureItem[], category?: ESGCategory): DisclosureItem[] {
+  return checklist.filter((item) => !category || item.category === category);
+}
+
+function standardNamesFromChecklist(checklist: DisclosureItem[]): string {
+  const names = unique(checklist.flatMap((item) => item.standards.map((standard) => standard.standardName)));
+  return names.length > 0 ? names.join("、") : "未选择披露标准";
+}
+
+function buildEvidenceNotes(items: DisclosureItem[], fallback: string): string[] {
+  if (items.length === 0) {
+    return [fallback];
   }
 
-  const categoryMap = {
-    E: ["环境数据", "合规与风控"],
-    S: ["员工与社会责任", "供应链管理", "财务/业务数据"],
-    G: ["公司治理", "合规与风控"],
-  } satisfies Record<"E" | "S" | "G", DocumentCategory[]>;
-
-  return getEvidenceFileIds(files, categoryMap[category]);
+  return items.map((item) => {
+    const fileText = item.evidenceFileIds.length > 0 ? `${item.evidenceFileIds.length} 份匹配文件` : "暂无匹配文件";
+    return `${item.topic}：${formatChecklistStandardRefs(item)}；材料状态：${item.status}；依据文件：${fileText}`;
+  });
 }
 
 function statusToIndicatorStatus(status: DisclosureStatus): IndicatorStatus {
@@ -198,7 +255,7 @@ function locationFor(item: DisclosureItem): string {
 }
 
 // Future LLM integration point:
-// Replace these mock functions with OpenAI / Anthropic / private model calls.
+// Replace these rule-based functions with OpenAI / Anthropic / private model calls.
 // Keep the function signatures stable so API routes and UI workflows do not need to change.
 export function classifyFiles(files: ClassifiableFile[]): UploadedFile[] {
   const now = new Date().toISOString();
@@ -213,109 +270,158 @@ export function classifyFiles(files: ClassifiableFile[]): UploadedFile[] {
   }));
 }
 
-export function generateDisclosureChecklist(files: UploadedFile[]): DisclosureItem[] {
-  return DISCLOSURE_TOPICS.map((topic) => {
-    const categoryMatched = hasCategory(files, topic.documentCategories);
-    const keywordMatched = hasTopicKeyword(files, topic.keywords);
-    const status: DisclosureStatus = keywordMatched ? "已覆盖" : categoryMatched ? "部分覆盖" : "缺失";
+export function generateDisclosureChecklist(
+  files: UploadedFile[],
+  selectedStandardIds: string[] = ["cn-exchange-lite"],
+): DisclosureItem[] {
+  const effectiveStandardIds = resolveSelectedStandardIds(selectedStandardIds);
+  const selectedItemsById = new Map(
+    DISCLOSURE_STANDARD_ITEMS.filter((item) => effectiveStandardIds.includes(item.standardId)).map((item) => [
+      item.id,
+      item,
+    ]),
+  );
 
-    return {
-      id: topic.id,
-      topic: topic.topic,
-      category: topic.category,
-      requirement: topic.requirement,
-      status,
-      missingContent: buildMissingContent(status, topic.missingContent),
-      responsibleDepartment: topic.responsibleDepartment,
-      riskLevel: resolveRisk(status, topic.defaultRiskLevel),
-    };
+  return TOPIC_MAPPINGS.flatMap((mapping) => {
+    const mappedItems = mapping.mappedStandardItemIds
+      .map((itemId) => selectedItemsById.get(itemId))
+      .filter((item): item is DisclosureStandardItem => Boolean(item));
+
+    if (mappedItems.length === 0) {
+      return [];
+    }
+
+    const requiredEvidenceTypes = unique(mappedItems.flatMap((item) => item.requiredEvidenceTypes));
+    const evidenceFiles = files.filter((file) => requiredEvidenceTypes.includes(file.category));
+    const matchedEvidenceTypes = requiredEvidenceTypes.filter((type) =>
+      evidenceFiles.some((file) => file.category === type),
+    );
+    const status = resolveStatus(requiredEvidenceTypes, matchedEvidenceTypes);
+
+    return [
+      {
+        id: mapping.topicId,
+        topic: mapping.topicName,
+        category: mapping.category,
+        standards: mappedItems.map((item) => ({
+          standardId: item.standardId,
+          standardName: getStandardName(item.standardId),
+          code: item.code,
+          title: item.title,
+        })),
+        requirement: buildRequirementSummary(mappedItems),
+        status,
+        missingContent: buildMissingContent(status, requiredEvidenceTypes, matchedEvidenceTypes),
+        responsibleDepartment: unique(mappedItems.flatMap((item) => item.suggestedDepartments)).join(" / "),
+        riskLevel: maxRiskLevel(mappedItems),
+        suggestedMetrics: unique(mappedItems.flatMap((item) => item.suggestedMetrics)),
+        evidenceFileIds: evidenceFiles.map((file) => file.id),
+      },
+    ];
   });
 }
 
 export function generateReportDraft(files: UploadedFile[], checklist: DisclosureItem[]): ReportSection[] {
   const summary = categoriesSummary(files);
+  const standardScope = standardNamesFromChecklist(checklist);
+  const allItems = sectionItems(checklist);
+  const envItems = sectionItems(checklist, "E");
+  const socialItems = sectionItems(checklist, "S");
+  const governanceItems = sectionItems(checklist, "G");
   const envMissing = missingTopics(checklist, "E");
   const socialMissing = missingTopics(checklist, "S");
   const governanceMissing = missingTopics(checklist, "G");
+  const suggestedMetrics = unique(checklist.flatMap((item) => item.suggestedMetrics));
 
   return [
     {
       id: "section-overview",
       title: "1. 公司概况",
-      relatedDisclosureItems: [],
-      evidenceFileIds: sectionEvidence(files, "overview"),
-      content: `本报告初稿基于企业已上传资料生成，当前系统识别到的资料覆盖情况为：${summary}。现阶段文本主要用于形成 ESG 报告框架、披露清单和后续补证路径，涉及定量绩效的数据仍需由企业确认口径后补充。`,
+      relatedDisclosureItems: checklist.map((item) => item.id),
+      evidenceFileIds: overviewEvidence(files),
+      evidenceNotes: [`本次报告初稿基于统一议题清单生成，覆盖标准范围：${standardScope}。`],
+      content: `本报告初稿基于企业已上传资料和标准映射驱动的披露清单生成。当前系统识别到的资料覆盖情况为：${summary}。本次标准范围为：${standardScope}。正式披露前，仍需由企业确认组织边界、报告期间、数据口径和证据编号。`,
     },
     {
       id: "section-governance-structure",
       title: "2. ESG 治理架构",
       relatedDisclosureItems: itemIds(checklist, "G"),
-      evidenceFileIds: sectionEvidence(files, "G"),
+      evidenceFileIds: evidenceFromItems(governanceItems),
+      evidenceNotes: buildEvidenceNotes(governanceItems, "本章节尚未匹配到治理类标准条目。"),
       content:
         governanceMissing.length > 0
-          ? `公司已开始梳理 ESG 治理与合规管理相关材料。针对${governanceMissing.slice(0, 3).join("、")}等议题，公司后续将进一步完善相关数据统计和管理机制，并明确董事会、管理层及职能部门在 ESG 工作中的职责边界。`
-          : "公司已提供公司治理、合规管理或风险管理相关材料，可支持 ESG 治理架构章节的基础披露。建议后续补充董事会审阅记录、ESG 议题汇报机制及跨部门协同流程，以增强证据链完整性。",
+          ? `公司已开始梳理 ESG 治理、合规和风险管理相关材料。针对 ${governanceMissing.slice(0, 3).join("、")} 等议题，后续应补充董事会或管理层职责、汇报机制、风险评估流程和制度执行记录。`
+          : "公司已提供治理、合规或风控相关资料，可支持 ESG 治理架构章节的基础披露。建议后续补充董事会审议记录、管理层汇报机制、跨部门协同流程和绩效考核衔接。",
     },
     {
       id: "section-materiality",
       title: "3. 重要性议题分析",
       relatedDisclosureItems: checklist.map((item) => item.id),
-      evidenceFileIds: files.map((file) => file.id),
-      content: `根据当前披露清单，E 类议题覆盖进度为 ${coveredRatio(checklist, "E")}，S 类议题覆盖进度为 ${coveredRatio(checklist, "S")}，G 类议题覆盖进度为 ${coveredRatio(checklist, "G")}。建议后续结合监管要求、同行披露实践、投资者关注和企业经营特点，对议题重要性进行分级，并保留访谈、问卷或会议纪要作为支撑材料。`,
+      evidenceFileIds: evidenceFromItems(allItems),
+      evidenceNotes: buildEvidenceNotes(allItems, "本章节尚未形成统一议题映射。"),
+      content: `根据当前披露清单，E 类议题覆盖进度为 ${coveredRatio(checklist, "E")}，S 类议题覆盖进度为 ${coveredRatio(checklist, "S")}，G 类议题覆盖进度为 ${coveredRatio(checklist, "G")}。后续建议结合监管要求、影响重要性、财务重要性和利益相关方关注，对统一议题进行分级排序。`,
     },
     {
       id: "section-environment",
       title: "4. 环境责任",
       relatedDisclosureItems: itemIds(checklist, "E"),
-      evidenceFileIds: sectionEvidence(files, "E"),
+      evidenceFileIds: evidenceFromItems(envItems),
+      evidenceNotes: buildEvidenceNotes(envItems, "本章节尚未匹配到环境类标准条目。"),
       content:
         envMissing.length > 0
-          ? `公司后续将进一步完善环境数据统计和管理机制，优先补充${envMissing.slice(0, 3).join("、")}等议题的证据材料。建议建立用电量、用水量、温室气体排放量、废弃物处置等指标台账，并明确数据来源、统计口径和复核责任。`
-          : "公司已上传环境相关资料，可作为环境责任章节的基础依据。建议在正式报告中补充用电量（kWh）、用水量（吨）、温室气体排放量（tCO2e）和废弃物处置量等指标，并说明节能降耗、环保合规和污染物管理措施。",
+          ? `公司后续应优先补充 ${envMissing.slice(0, 3).join("、")} 等环境议题的证据材料。建议建立能源、水资源、温室气体排放、污染物排放、废弃物和生态保护等指标台账，并明确数据来源、统计边界和复核责任。`
+          : "公司已上传环境相关资料，可作为环境责任章节的基础依据。建议在正式报告中补充能源消耗、温室气体排放、水资源利用、污染物和废弃物处理等量化指标，并说明环境合规和低碳转型措施。",
     },
     {
       id: "section-social",
       title: "5. 社会责任",
       relatedDisclosureItems: itemIds(checklist, "S"),
-      evidenceFileIds: sectionEvidence(files, "S"),
+      evidenceFileIds: evidenceFromItems(socialItems),
+      evidenceNotes: buildEvidenceNotes(socialItems, "本章节尚未匹配到社会类标准条目。"),
       content:
         socialMissing.length > 0
-          ? `公司已具备部分社会责任披露基础。针对${socialMissing.slice(0, 3).join("、")}等尚未充分覆盖的议题，公司后续将进一步完善相关数据统计和管理机制，补充员工、客户、供应链和社区贡献等方面的证据材料。`
-          : "公司已上传员工、供应链或业务相关资料，可支持社会责任章节的基础披露。建议进一步补充员工结构、培训覆盖、职业健康安全、客户权益和供应商管理等指标，并与人力资源、采购及业务系统数据保持一致。",
+          ? `公司已具备部分社会责任披露基础。针对 ${socialMissing.slice(0, 3).join("、")} 等尚未充分覆盖的议题，建议补充员工、职业健康安全、供应链、产品服务、社区贡献等方面的制度、统计数据和执行记录。`
+          : "公司已上传员工、供应链、产品服务或社会贡献相关资料，可支持社会责任章节的基础披露。建议继续补充员工结构、培训覆盖、工伤事故、供应商评估、客户投诉处理和公益投入等指标。",
     },
     {
       id: "section-governance",
       title: "6. 公司治理",
       relatedDisclosureItems: itemIds(checklist, "G"),
-      evidenceFileIds: sectionEvidence(files, "G"),
+      evidenceFileIds: evidenceFromItems(governanceItems),
+      evidenceNotes: buildEvidenceNotes(governanceItems, "本章节尚未匹配到治理类标准条目。"),
       content:
         governanceMissing.length > 0
-          ? `公司后续将进一步完善公司治理与合规风控披露。当前建议优先补充${governanceMissing.slice(0, 3).join("、")}等议题的制度文件、会议记录、培训记录或内控材料，避免在正式报告中作出缺少依据的结论性表述。`
-          : "公司已上传公司治理、合规或风控相关资料，可支持公司治理章节的基础披露。建议在正式报告中说明董事会治理、合规培训、风险识别、反腐败管理和数据安全保护等机制，并保留制度版本和执行记录。",
+          ? `公司后续应完善 ${governanceMissing.slice(0, 3).join("、")} 等治理议题的证据链。建议补充治理制度、风险清单、尽职调查记录、反腐败培训、举报处理、数据安全和公平竞争相关材料。`
+          : "公司已上传公司治理、合规或风控相关资料，可支持公司治理章节的基础披露。建议在正式报告中说明治理架构、风险管理、反腐败、数据安全、利益相关方沟通和公平竞争机制。",
     },
     {
       id: "section-kpi",
       title: "7. 关键绩效表",
       relatedDisclosureItems: checklist.map((item) => item.id),
-      evidenceFileIds: files.map((file) => file.id),
-      content:
-        "关键绩效表建议按 E、S、G 三类分别维护。当前 MVP 阶段暂不编造具体数值，建议企业后续补充能源使用、温室气体排放、员工人数、培训时长、工伤情况、供应商数量、公益投入、合规培训覆盖等指标，并标注统计范围和数据负责人。",
+      evidenceFileIds: evidenceFromItems(allItems),
+      evidenceNotes: buildEvidenceNotes(allItems, "关键绩效表将基于披露清单中的建议指标生成。"),
+      content: `关键绩效表建议按统一议题维护，并与标准条目保持映射。当前建议优先补充的指标包括：${suggestedMetrics.slice(0, 18).join("、") || "暂无建议指标"}。MVP 阶段不会编造具体数值，后续应由责任部门确认统计范围、单位、周期和数据负责人。`,
     },
     {
       id: "section-index",
       title: "8. 指标索引表",
       relatedDisclosureItems: checklist.map((item) => item.id),
-      evidenceFileIds: files.map((file) => file.id),
+      evidenceFileIds: evidenceFromItems(allItems),
+      evidenceNotes: buildEvidenceNotes(allItems, "指标索引表将展示统一议题与标准条目的对应关系。"),
       content:
-        "指标索引表将基于披露清单自动生成，包含披露议题、所属类别、披露位置、披露状态和备注。对于当前材料显示为缺失或部分覆盖的议题，建议在索引表中标注待补充材料和责任部门，便于项目管理和审阅追踪。",
+        "指标索引表将基于统一披露清单自动生成，包含披露议题、所属类别、关联标准条目、披露位置、材料状态和备注。对当前材料显示为缺失或部分覆盖的议题，建议在索引表中标注待补充资料和责任部门，便于项目管理和审阅追踪。",
     },
     {
       id: "section-next",
       title: "9. 下一步提升建议",
       relatedDisclosureItems: checklist.filter((item) => item.status !== "已覆盖").map((item) => item.id),
-      evidenceFileIds: [],
+      evidenceFileIds: evidenceFromItems(checklist.filter((item) => item.status !== "缺失")),
+      evidenceNotes: buildEvidenceNotes(
+        checklist.filter((item) => item.status !== "已覆盖"),
+        "当前清单未识别出待补充议题。",
+      ),
       content:
-        "建议下一阶段优先建立 ESG 数据台账，明确各议题的数据口径、责任部门、证据文件和复核流程。对于高风险缺失项，应先补齐制度、记录或量化指标，再进入正式报告撰写和法务审阅环节。",
+        "建议下一阶段优先建立 ESG 数据台账，按统一议题沉淀数据口径、责任部门、证据文件和复核流程。对于高风险缺失项，应先补齐制度、记录或量化指标，再进入正式报告撰写和法务审阅环节。",
     },
   ];
 }
@@ -346,9 +452,9 @@ export function checkReportRisks(reportDraft: ReportSection[], checklist: Disclo
     findings.push({
       id: createId("risk"),
       type: "缺少量化数据",
-      description: "环境章节缺少量化数据，建议补充用电量、用水量、温室气体排放等指标。",
+      description: "环境章节缺少量化数据，建议补充能源、水资源、温室气体排放、污染物排放或废弃物等指标。",
       sectionTitle: environmentSection?.title ?? "4. 环境责任",
-      suggestion: "补充指标数值、单位、统计周期、组织边界和数据来源，无法确认的数据应标注为待补充。",
+      suggestion: "补充指标数值、单位、统计周期、组织边界和数据来源；无法确认的数据应标注为待补充。",
       riskLevel: "中",
     });
   }
@@ -359,9 +465,9 @@ export function checkReportRisks(reportDraft: ReportSection[], checklist: Disclo
       findings.push({
         id: createId("risk"),
         type: "披露缺口",
-        description: `存在高风险披露缺口：${item.topic}。`,
+        description: `存在高风险披露缺口：${item.topic}。关联标准：${formatChecklistStandardRefs(item)}。`,
         sectionTitle: SECTION_BY_CATEGORY[item.category],
-        suggestion: `建议优先由${item.responsibleDepartment}补充相关材料：${item.missingContent}`,
+        suggestion: `建议优先由 ${item.responsibleDepartment} 补充相关材料。${item.missingContent}`,
         riskLevel: "高",
       });
     });
@@ -369,7 +475,7 @@ export function checkReportRisks(reportDraft: ReportSection[], checklist: Disclo
   findings.push({
     id: createId("risk"),
     type: "数据一致性",
-    description: "请确认员工人数、能源消耗、公益投入等关键数据与年报、财务数据保持一致。",
+    description: "请确认员工人数、能源消耗、公益投入等关键数据与年报、财务数据及内部台账保持一致。",
     sectionTitle: "全报告",
     suggestion: "建立关键数据交叉核验表，保留数据来源、导出时间和责任人确认记录。",
     riskLevel: "低",
@@ -384,6 +490,7 @@ export function generateIndicatorIndex(reportDraft: ReportSection[], checklist: 
   return checklist.map((item) => {
     const location = locationFor(item);
     const resolvedLocation = location !== "待补充" && availableSectionTitles.has(location) ? location : location;
+    const standardRefs = formatChecklistStandardRefs(item);
 
     return {
       id: createId("indicator"),
@@ -393,10 +500,10 @@ export function generateIndicatorIndex(reportDraft: ReportSection[], checklist: 
       status: statusToIndicatorStatus(item.status),
       notes:
         item.status === "已覆盖"
-          ? "已有相关资料支撑，正式披露前建议补充证据编号。"
+          ? `关联标准：${standardRefs}。已有主要资料支撑，正式披露前建议补充证据编号。`
           : item.status === "部分覆盖"
-            ? item.missingContent
-            : `未披露，建议由${item.responsibleDepartment}补充材料。`,
+            ? `关联标准：${standardRefs}。${item.missingContent}`
+            : `关联标准：${standardRefs}。未披露，建议由 ${item.responsibleDepartment} 补充材料。`,
     };
   });
 }

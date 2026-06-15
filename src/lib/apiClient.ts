@@ -28,9 +28,13 @@ export function classifyFilesApi(files: ClassifiableFile[]) {
   return postJson<{ files: UploadedFile[] }, { files: ClassifiableFile[] }>("/api/esg/classify", { files });
 }
 
-export function generateDisclosureChecklistApi(files: UploadedFile[]) {
-  return postJson<{ checklist: DisclosureItem[] }, { files: UploadedFile[] }>("/api/esg/disclosure-checklist", {
+export function generateDisclosureChecklistApi(files: UploadedFile[], selectedStandardIds: string[]) {
+  return postJson<
+    { checklist: DisclosureItem[] },
+    { files: UploadedFile[]; selectedStandardIds: string[] }
+  >("/api/esg/disclosure-checklist", {
     files,
+    selectedStandardIds,
   });
 }
 

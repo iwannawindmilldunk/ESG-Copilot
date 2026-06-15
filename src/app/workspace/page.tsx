@@ -13,6 +13,11 @@ import { RiskCheckPanel } from "@/components/RiskCheckPanel";
 import { Stepper, type StepDefinition } from "@/components/Stepper";
 import { UploadedFileList } from "@/components/UploadedFileList";
 import {
+  COMPREHENSIVE_STANDARD_ID,
+  DISCLOSURE_STANDARDS,
+  resolveSelectedStandardIds,
+} from "@/lib/esg/standards";
+import {
   checkReportRisksApi,
   classifyFilesApi,
   generateDisclosureChecklistApi,
@@ -53,6 +58,24 @@ const steps: StepDefinition[] = [
 ];
 
 type LoadingAction = "upload" | "checklist" | "report" | "risk" | "index" | null;
+
+const materialityLabels = {
+  impact: "影响重要性",
+  financial: "财务重要性",
+  double: "双重重要性",
+  regulatory: "监管导向",
+} as const;
+
+const standardSelectionOptions = [
+  ...DISCLOSURE_STANDARDS,
+  {
+    id: COMPREHENSIVE_STANDARD_ID,
+    name: "综合模式",
+    issuer: "系统合并",
+    description: "合并国内交易所指引 Lite、GRI Standards Lite 与 ISSB IFRS S1/S2 Lite，按统一议题去重生成清单。",
+    materialityType: "double",
+  },
+] as const;
 
 function SectionHeader({
   eyebrow,
@@ -96,8 +119,64 @@ function PrimaryAction({
   );
 }
 
+function StandardSelector({
+  selectedStandardIds,
+  onToggle,
+}: {
+  selectedStandardIds: string[];
+  onToggle: (standardId: string) => void;
+}) {
+  const effectiveStandardIds =
+    selectedStandardIds.length > 0 ? resolveSelectedStandardIds(selectedStandardIds) : [];
+  const effectiveStandardNames = DISCLOSURE_STANDARDS.filter((standard) => effectiveStandardIds.includes(standard.id))
+    .map((standard) => standard.name)
+    .join("、");
+
+  return (
+    <section className="mb-6 rounded-lg border border-ink-100 bg-white p-5 shadow-sm">
+      <div className="mb-4">
+        <p className="text-sm font-semibold uppercase tracking-[0.16em] text-brand-700">Standard Scope</p>
+        <h2 className="mt-2 text-2xl font-semibold text-ink-900">选择披露标准</h2>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-600">
+          当前生效标准：{effectiveStandardNames || "尚未选择"}。披露清单将基于所选标准条目映射到统一 ESG 议题。
+        </p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {standardSelectionOptions.map((option) => {
+          const checked = selectedStandardIds.includes(option.id);
+
+          return (
+            <label
+              key={option.id}
+              className="flex cursor-pointer gap-3 rounded-lg border border-ink-100 bg-[#f7fbf9] p-4 transition hover:border-brand-200 hover:bg-brand-50"
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => onToggle(option.id)}
+                className="mt-1 h-4 w-4 rounded border-ink-300 text-brand-700 focus:ring-brand-600"
+              />
+              <span className="min-w-0">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-ink-900">{option.name}</span>
+                  <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-ink-500 ring-1 ring-ink-100">
+                    {materialityLabels[option.materialityType]}
+                  </span>
+                </span>
+                <span className="mt-1 block text-xs font-medium text-brand-700">{option.issuer}</span>
+                <span className="mt-2 block text-sm leading-6 text-ink-600">{option.description}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export default function WorkspacePage() {
   const [currentStep, setCurrentStep] = useState(0);
+  const [selectedStandardIds, setSelectedStandardIds] = useState<string[]>(["cn-exchange-lite"]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [disclosureChecklist, setDisclosureChecklist] = useState<DisclosureItem[]>([]);
   const [reportDraft, setReportDraft] = useState<ReportSection[]>([]);
@@ -114,7 +193,13 @@ export default function WorkspacePage() {
     return 0;
   }, [disclosureChecklist.length, indicatorIndex.length, reportDraft.length, riskFindings.length, uploadedFiles.length]);
 
+  const effectiveSelectedStandardIds = useMemo(
+    () => (selectedStandardIds.length > 0 ? resolveSelectedStandardIds(selectedStandardIds) : []),
+    [selectedStandardIds],
+  );
+
   const snapshot: ESGProjectSnapshot = {
+    selectedStandardIds: effectiveSelectedStandardIds,
     uploadedFiles,
     disclosureChecklist,
     reportDraft,
@@ -134,6 +219,27 @@ export default function WorkspacePage() {
     }
   }
 
+  function clearGeneratedResults() {
+    setDisclosureChecklist([]);
+    setReportDraft([]);
+    setRiskFindings([]);
+    setIndicatorIndex([]);
+  }
+
+  function handleToggleStandard(standardId: string) {
+    clearGeneratedResults();
+    setSelectedStandardIds((prev) => {
+      if (standardId === COMPREHENSIVE_STANDARD_ID) {
+        return prev.includes(COMPREHENSIVE_STANDARD_ID) ? [] : [COMPREHENSIVE_STANDARD_ID];
+      }
+
+      const withoutComprehensive = prev.filter((id) => id !== COMPREHENSIVE_STANDARD_ID);
+      return withoutComprehensive.includes(standardId)
+        ? withoutComprehensive.filter((id) => id !== standardId)
+        : [...withoutComprehensive, standardId];
+    });
+  }
+
   async function handleUpload(files: ClassifiableFile[]) {
     await runWithErrorBoundary("upload", async () => {
       const response = await classifyFilesApi(files);
@@ -148,7 +254,7 @@ export default function WorkspacePage() {
 
   function handleGenerateChecklist() {
     void runWithErrorBoundary("checklist", async () => {
-      const response = await generateDisclosureChecklistApi(uploadedFiles);
+      const response = await generateDisclosureChecklistApi(uploadedFiles, selectedStandardIds);
       setDisclosureChecklist(response.checklist);
       setReportDraft([]);
       setRiskFindings([]);
@@ -185,6 +291,7 @@ export default function WorkspacePage() {
   }
 
   function handleReset() {
+    setSelectedStandardIds(["cn-exchange-lite"]);
     setUploadedFiles([]);
     setDisclosureChecklist([]);
     setReportDraft([]);
@@ -208,6 +315,9 @@ export default function WorkspacePage() {
           <div className="flex flex-wrap items-center gap-2 text-sm text-ink-600">
             <span className="rounded-full bg-brand-50 px-3 py-1 font-medium text-brand-800">
               文件 {uploadedFiles.length}
+            </span>
+            <span className="rounded-full bg-brand-50 px-3 py-1 font-medium text-brand-800">
+              标准 {effectiveSelectedStandardIds.length}
             </span>
             <span className="rounded-full bg-brand-50 px-3 py-1 font-medium text-brand-800">
               清单 {disclosureChecklist.length}
@@ -250,6 +360,7 @@ export default function WorkspacePage() {
 
           {currentStep === 0 ? (
             <div>
+              <StandardSelector selectedStandardIds={selectedStandardIds} onToggle={handleToggleStandard} />
               <SectionHeader
                 eyebrow="Step 1"
                 title="上传资料"
@@ -267,12 +378,12 @@ export default function WorkspacePage() {
               <SectionHeader
                 eyebrow="Step 2"
                 title="生成 ESG 披露清单"
-                description="系统根据上传文件的资料类别，生成 E/S/G 议题覆盖判断、缺失内容、责任部门和风险等级。"
+                description="系统根据所选披露标准、统一议题映射和上传文件资料类别，生成标准条目覆盖判断、缺失内容、建议指标、责任部门和风险等级。"
               />
               <div className="mb-5 flex flex-wrap items-center gap-3">
                 <PrimaryAction
                   onClick={handleGenerateChecklist}
-                  disabled={uploadedFiles.length === 0}
+                  disabled={uploadedFiles.length === 0 || selectedStandardIds.length === 0}
                   loading={loadingAction === "checklist"}
                 >
                   生成披露清单
@@ -282,10 +393,10 @@ export default function WorkspacePage() {
                   onClick={() => setCurrentStep(0)}
                   className="inline-flex items-center justify-center rounded-lg border border-ink-100 bg-white px-4 py-2.5 text-sm font-semibold text-ink-700 transition hover:border-brand-200 hover:bg-brand-50"
                 >
-                  继续上传资料
+                  返回选择标准与上传资料
                 </button>
               </div>
-              <DisclosureChecklist checklist={disclosureChecklist} />
+              <DisclosureChecklist checklist={disclosureChecklist} files={uploadedFiles} />
             </div>
           ) : null}
 
@@ -294,7 +405,7 @@ export default function WorkspacePage() {
               <SectionHeader
                 eyebrow="Step 3"
                 title="生成报告初稿"
-                description="报告以模板、资料类别和披露状态为依据生成，缺失议题会保留审慎表述，不编造具体数据。"
+                description="报告以统一议题、标准条目、资料类别和披露状态为依据生成，缺失议题会保留审慎表述，不编造具体数据。"
               />
               <div className="mb-5 flex flex-wrap items-center gap-3">
                 <PrimaryAction

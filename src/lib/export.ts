@@ -1,4 +1,5 @@
 import type { ESGProjectSnapshot, ReportSection } from "@/types/esg";
+import { DISCLOSURE_STANDARDS } from "@/lib/esg/standards";
 
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -20,18 +21,36 @@ export function formatDateTime(iso: string): string {
 }
 
 export function reportToPlainText(reportDraft: ReportSection[]): string {
-  return reportDraft.map((section) => `${section.title}\n\n${section.content}`).join("\n\n");
+  return reportDraft
+    .map((section) => {
+      const notes =
+        section.evidenceNotes.length > 0 ? `\n\nEvidence Notes\n${section.evidenceNotes.map((note) => `- ${note}`).join("\n")}` : "";
+
+      return `${section.title}\n\n${section.content}${notes}`;
+    })
+    .join("\n\n");
 }
 
 export function snapshotToMarkdown(snapshot: ESGProjectSnapshot): string {
+  const selectedStandards = DISCLOSURE_STANDARDS.filter((standard) =>
+    snapshot.selectedStandardIds.includes(standard.id),
+  )
+    .map((standard) => `- ${standard.name}（${standard.issuer}）`)
+    .join("\n");
+
   const files = snapshot.uploadedFiles
     .map((file) => `- ${file.name} (${file.type}, ${formatBytes(file.size)}, ${file.category})`)
     .join("\n");
 
   const checklist = snapshot.disclosureChecklist
     .map(
-      (item) =>
-        `| ${item.category} | ${item.topic} | ${item.status} | ${item.riskLevel} | ${item.responsibleDepartment} |`,
+      (item) => {
+        const standards = item.standards.map((standard) => `${standard.code} ${standard.title}`).join("<br>");
+        const metrics = item.suggestedMetrics.join("、");
+        const evidence = item.evidenceFileIds.join("、") || "暂无匹配";
+
+        return `| ${item.category} | ${item.topic} | ${standards} | ${item.status} | ${item.riskLevel} | ${metrics} | ${item.responsibleDepartment} | ${evidence} |`;
+      },
     )
     .join("\n");
 
@@ -52,10 +71,14 @@ export function snapshotToMarkdown(snapshot: ESGProjectSnapshot): string {
 
 ${files || "暂无上传文件"}
 
+## 选择披露标准
+
+${selectedStandards || "暂无选择标准"}
+
 ## 披露清单
 
-| 类别 | 披露议题 | 状态 | 风险等级 | 责任部门 |
-| --- | --- | --- | --- | --- |
+| 类别 | 统一披露议题 | 对应标准条目 | 状态 | 风险等级 | 建议指标 | 责任部门 | 依据文件 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
 ${checklist}
 
 ## 报告初稿

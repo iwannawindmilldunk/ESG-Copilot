@@ -1,0 +1,148 @@
+import type { UnifiedTopicMapping } from "@/types/esg";
+
+export const TOPIC_MAPPINGS = [
+  {
+    topicId: "topic-financial-sustainability",
+    topicName: "可持续发展相关财务影响",
+    category: "G",
+    mappedStandardItemIds: ["gri-201-economic-performance", "issb-ifrs-s1-general"],
+  },
+  {
+    topicId: "topic-esg-governance",
+    topicName: "ESG 治理与监督",
+    category: "G",
+    mappedStandardItemIds: ["issb-governance"],
+  },
+  {
+    topicId: "topic-strategy-resilience",
+    topicName: "战略与商业模式韧性",
+    category: "G",
+    mappedStandardItemIds: ["issb-strategy"],
+  },
+  {
+    topicId: "topic-risk-due-diligence",
+    topicName: "风险管理与尽职调查",
+    category: "G",
+    mappedStandardItemIds: ["issb-risk-management", "cn-due-diligence"],
+  },
+  {
+    topicId: "topic-metrics-targets",
+    topicName: "指标、目标与数据口径",
+    category: "G",
+    mappedStandardItemIds: ["issb-metrics-targets"],
+  },
+  {
+    topicId: "topic-climate-ghg",
+    topicName: "气候变化与温室气体排放",
+    category: "E",
+    mappedStandardItemIds: [
+      "cn-climate-change",
+      "gri-305-emissions",
+      "issb-ifrs-s2-climate",
+      "issb-climate-risks-opportunities",
+      "issb-ghg-emissions",
+      "issb-transition-plan",
+      "issb-scenario-analysis",
+    ],
+  },
+  {
+    topicId: "topic-energy",
+    topicName: "能源利用",
+    category: "E",
+    mappedStandardItemIds: ["gri-302-energy", "cn-energy-use"],
+  },
+  {
+    topicId: "topic-water",
+    topicName: "水资源利用",
+    category: "E",
+    mappedStandardItemIds: ["gri-303-water-effluents", "cn-water-use"],
+  },
+  {
+    topicId: "topic-pollution-compliance",
+    topicName: "污染物排放与环境合规",
+    category: "E",
+    mappedStandardItemIds: ["cn-pollution-emissions", "cn-environmental-compliance"],
+  },
+  {
+    topicId: "topic-waste-circular",
+    topicName: "废弃物处理与循环经济",
+    category: "E",
+    mappedStandardItemIds: ["gri-306-waste", "cn-waste-treatment", "cn-circular-economy"],
+  },
+  {
+    topicId: "topic-biodiversity",
+    topicName: "生态系统和生物多样性保护",
+    category: "E",
+    mappedStandardItemIds: ["gri-304-biodiversity", "cn-biodiversity"],
+  },
+  {
+    topicId: "topic-community",
+    topicName: "社会贡献与乡村振兴",
+    category: "S",
+    mappedStandardItemIds: ["cn-rural-revitalization", "cn-social-contribution"],
+  },
+  {
+    topicId: "topic-innovation-ethics",
+    topicName: "创新驱动与科技伦理",
+    category: "S",
+    mappedStandardItemIds: ["cn-innovation-driven", "cn-tech-ethics"],
+  },
+  {
+    topicId: "topic-supply-chain",
+    topicName: "供应链责任与安全",
+    category: "S",
+    mappedStandardItemIds: ["gri-414-supplier-social-assessment", "cn-supply-chain-security"],
+  },
+  {
+    topicId: "topic-sme-fair-treatment",
+    topicName: "平等对待中小企业",
+    category: "G",
+    mappedStandardItemIds: ["cn-sme-fair-treatment"],
+  },
+  {
+    topicId: "topic-product-service-quality",
+    topicName: "产品和服务安全与质量",
+    category: "S",
+    mappedStandardItemIds: ["cn-product-service-safety-quality"],
+  },
+  {
+    topicId: "topic-data-privacy",
+    topicName: "数据安全与客户隐私保护",
+    category: "G",
+    mappedStandardItemIds: ["gri-418-customer-privacy", "cn-data-security-customer-privacy"],
+  },
+  {
+    topicId: "topic-employment",
+    topicName: "员工权益与雇佣",
+    category: "S",
+    mappedStandardItemIds: ["gri-401-employment", "cn-employee-rights"],
+  },
+  {
+    topicId: "topic-ohs",
+    topicName: "职业健康与安全",
+    category: "S",
+    mappedStandardItemIds: ["gri-403-occupational-health-safety", "cn-occupational-health-safety"],
+  },
+  {
+    topicId: "topic-training-diversity",
+    topicName: "培训发展与多元平等",
+    category: "S",
+    mappedStandardItemIds: ["gri-404-training-education", "gri-405-diversity-equal-opportunity"],
+  },
+  {
+    topicId: "topic-stakeholder-communication",
+    topicName: "利益相关方沟通",
+    category: "G",
+    mappedStandardItemIds: ["cn-stakeholder-communication"],
+  },
+  {
+    topicId: "topic-business-ethics",
+    topicName: "商业道德、反腐败与公平竞争",
+    category: "G",
+    mappedStandardItemIds: [
+      "gri-205-anti-corruption",
+      "cn-anti-bribery-corruption",
+      "cn-anti-unfair-competition",
+    ],
+  },
+] satisfies UnifiedTopicMapping[];

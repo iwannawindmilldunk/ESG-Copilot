@@ -27,6 +27,16 @@ export function ReportDraftViewer({ sections }: ReportDraftViewerProps) {
             </div>
           </div>
           <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-ink-700">{section.content}</p>
+          {section.evidenceNotes.length > 0 ? (
+            <div className="mt-4 rounded-lg bg-brand-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-700">Evidence Notes</p>
+              <ul className="mt-2 space-y-1 text-sm leading-6 text-ink-700">
+                {section.evidenceNotes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </article>
       ))}
     </div>
