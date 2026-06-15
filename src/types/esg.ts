@@ -16,6 +16,8 @@ export type RiskLevel = "低" | "中" | "高";
 
 export type IndicatorStatus = "已披露" | "部分披露" | "未披露";
 
+export type MaterialityType = "impact" | "financial" | "double" | "regulatory";
+
 export interface ClassifiableFile {
   name: string;
   type?: string;
@@ -32,16 +34,55 @@ export interface UploadedFile {
   category: DocumentCategory;
 }
 
-export interface DisclosureItem {
+export interface Standard {
+  id: string;
+  name: string;
+  issuer: string;
+  description: string;
+  materialityType: MaterialityType;
+}
+
+export interface DisclosureStandardItem {
+  id: string;
+  standardId: string;
+  code: string;
+  title: string;
+  category: ESGCategory;
+  theme: string;
+  requirementSummary: string;
+  requiredEvidenceTypes: string[];
+  suggestedMetrics: string[];
+  suggestedDepartments: string[];
+  riskLevelIfMissing: RiskLevel;
+}
+
+export interface UnifiedTopicMapping {
+  topicId: string;
+  topicName: string;
+  category: ESGCategory;
+  mappedStandardItemIds: string[];
+}
+
+export interface DisclosureChecklistItem {
   id: string;
   topic: string;
   category: ESGCategory;
+  standards: {
+    standardId: string;
+    standardName: string;
+    code: string;
+    title: string;
+  }[];
   requirement: string;
   status: DisclosureStatus;
   missingContent: string;
   responsibleDepartment: string;
   riskLevel: RiskLevel;
+  suggestedMetrics: string[];
+  evidenceFileIds: string[];
 }
+
+export type DisclosureItem = DisclosureChecklistItem;
 
 export interface EvidenceNote {
   fileId: string;
@@ -56,7 +97,7 @@ export interface ReportSection {
   relatedDisclosureItems: string[];
   evidenceFileIds: string[];
   evidenceNotes: EvidenceNote[];
-  confidenceLevel: "高" | "中" | "低";
+  confidenceLevel: RiskLevel;
 }
 
 export interface RiskFinding {
@@ -90,6 +131,7 @@ export interface ReadinessScoreResult {
 }
 
 export interface ESGProjectSnapshot {
+  selectedStandardIds: string[];
   uploadedFiles: UploadedFile[];
   disclosureChecklist: DisclosureItem[];
   reportDraft: ReportSection[];

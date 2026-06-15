@@ -54,7 +54,7 @@ export function ReportDraftViewer({ sections, checklist = [] }: ReportDraftViewe
                 </div>
               </div>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">依据材料</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">依据材料 / 标准条目</p>
                 <div className="mt-2 space-y-2">
                   {section.evidenceNotes.length > 0 ? (
                     section.evidenceNotes.map((note) => (

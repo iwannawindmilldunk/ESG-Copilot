@@ -1,3 +1,4 @@
+import { DISCLOSURE_STANDARDS } from "@/lib/esg/standards";
 import type { DisclosureItem, ESGProjectSnapshot, IndicatorIndex, ReportSection, RiskFinding } from "@/types/esg";
 
 const UTF8_BOM = "\ufeff";
@@ -25,12 +26,42 @@ function disclosureTopicMap(snapshot: ESGProjectSnapshot): Map<string, string> {
   return new Map(snapshot.disclosureChecklist.map((item) => [item.id, item.topic]));
 }
 
+function selectedStandardsMarkdown(snapshot: ESGProjectSnapshot): string {
+  return (
+    DISCLOSURE_STANDARDS.filter((standard) => snapshot.selectedStandardIds.includes(standard.id))
+      .map((standard) => `- ${standard.name}（${standard.issuer}）`)
+      .join("\n") || "暂无选择标准"
+  );
+}
+
+function formatChecklistStandardRefs(item: DisclosureItem): string {
+  return item.standards.map((standard) => `${standard.code} ${standard.title}`).join(" / ");
+}
+
 export function reportToPlainText(reportDraft: ReportSection[]): string {
-  return reportDraft.map((section) => `${section.title}\n\n${section.content}`).join("\n\n");
+  return reportDraft
+    .map((section) => {
+      const notes =
+        section.evidenceNotes.length > 0
+          ? `\n\n依据材料 / 标准条目\n${section.evidenceNotes.map((note) => `- ${note.fileName}：${note.reason}`).join("\n")}`
+          : "";
+
+      return `${section.title}\n\n${section.content}${notes}\n\n置信度：${section.confidenceLevel}`;
+    })
+    .join("\n\n");
 }
 
 export function snapshotToMarkdown(snapshot: ESGProjectSnapshot): string {
   const topicById = disclosureTopicMap(snapshot);
+  const files = snapshot.uploadedFiles
+    .map((file) => `- ${file.name} (${file.type}, ${formatBytes(file.size)}, ${file.category})`)
+    .join("\n");
+  const checklist = snapshot.disclosureChecklist
+    .map(
+      (item) =>
+        `| ${item.category} | ${item.topic} | ${formatChecklistStandardRefs(item)} | ${item.status} | ${item.riskLevel} | ${item.suggestedMetrics.join("、")} | ${item.responsibleDepartment} | ${item.evidenceFileIds.join("、") || "暂无匹配"} |`,
+    )
+    .join("\n");
   const sections = snapshot.reportDraft
     .map((section) => {
       const topics = section.relatedDisclosureItems.map((id) => topicById.get(id) ?? id).join("、") || "无";
@@ -45,7 +76,7 @@ ${section.content}
 
 **相关披露议题**：${topics}
 
-**依据材料**
+**依据材料 / 标准条目**
 
 ${evidence}
 
@@ -63,6 +94,20 @@ ${evidence}
   return `# ESG 报告初稿
 
 > 本文件由 MVP mock 工作流生成，正式披露前需进行资料复核、数据校验和合规审阅。
+
+## 选择披露标准
+
+${selectedStandardsMarkdown(snapshot)}
+
+## 上传文件
+
+${files || "暂无上传文件"}
+
+## 披露清单
+
+| 类别 | 统一披露议题 | 对应标准条目 | 状态 | 风险等级 | 建议指标 | 责任部门 | 依据文件 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+${checklist || "| - | 暂无 | - | - | - | - | - | - |"}
 
 ## 披露准备度评分
 
@@ -91,15 +136,18 @@ function toCsv(rows: Array<Array<string | number>>): string {
 
 export function disclosureChecklistToCsv(checklist: DisclosureItem[]): string {
   return toCsv([
-    ["类别", "披露议题", "披露要求", "材料状态", "缺失内容", "责任部门", "风险等级"],
+    ["类别", "统一披露议题", "对应标准条目", "披露要求", "材料状态", "缺失内容", "建议指标", "责任部门", "风险等级", "依据文件ID"],
     ...checklist.map((item) => [
       item.category,
       item.topic,
+      formatChecklistStandardRefs(item),
       item.requirement,
       item.status,
       item.missingContent,
+      item.suggestedMetrics.join("、"),
       item.responsibleDepartment,
       item.riskLevel,
+      item.evidenceFileIds.join("、"),
     ]),
   ]);
 }
