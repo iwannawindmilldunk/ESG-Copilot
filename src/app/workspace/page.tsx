@@ -1,13 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Database, Loader2, Play, RefreshCw } from "lucide-react";
+import {
+  ArrowLeft,
+  BarChart3,
+  ClipboardList,
+  Database,
+  Download,
+  FileText,
+  Loader2,
+  Play,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { DisclosureChecklist } from "@/components/DisclosureChecklist";
 import { ExportPanel } from "@/components/ExportPanel";
 import { FileUploader } from "@/components/FileUploader";
 import { IndicatorIndexTable } from "@/components/IndicatorIndexTable";
+import { ReadinessScoreCard } from "@/components/ReadinessScoreCard";
 import { ReportDraftViewer } from "@/components/ReportDraftViewer";
 import { RiskCheckPanel } from "@/components/RiskCheckPanel";
 import { Stepper, type StepDefinition } from "@/components/Stepper";
@@ -19,6 +32,7 @@ import {
   generateIndicatorIndexApi,
   generateReportDraftApi,
 } from "@/lib/apiClient";
+import { calculateReadinessScore } from "@/lib/esg/readinessScore";
 import type {
   ClassifiableFile,
   DisclosureItem,
@@ -32,47 +46,126 @@ import type {
 const steps: StepDefinition[] = [
   {
     title: "上传资料",
-    description: "上传文件并自动识别资料类别",
+    description: "上传或加载示例资料，自动识别资料类别。",
   },
   {
-    title: "生成披露清单",
-    description: "判断 ESG 议题覆盖与缺口",
+    title: "披露清单",
+    description: "判断 E/S/G 议题覆盖、缺口和风险。",
   },
   {
-    title: "生成报告初稿",
-    description: "按章节输出审慎报告文本",
+    title: "报告初稿",
+    description: "生成带证据链和置信度的审慎初稿。",
   },
   {
     title: "风险校验",
-    description: "检查夸大表述、缺口和一致性",
+    description: "检查夸大表述、证据缺失和数据缺口。",
   },
   {
     title: "导出结果",
-    description: "生成指标索引并导出文件",
+    description: "生成指标索引并导出 Markdown / JSON / CSV。",
   },
 ];
 
-type LoadingAction = "upload" | "checklist" | "report" | "risk" | "index" | null;
+const SAMPLE_FILES: ClassifiableFile[] = [
+  {
+    name: "2025年度员工培训统计表.xlsx",
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    size: 182_000,
+  },
+  { name: "董事会治理制度.pdf", type: "application/pdf", size: 324_000 },
+  {
+    name: "反商业贿赂管理办法.docx",
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    size: 146_000,
+  },
+  {
+    name: "2025年度用电用水统计表.xlsx",
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    size: 208_000,
+  },
+  {
+    name: "供应商管理制度.docx",
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    size: 130_000,
+  },
+  {
+    name: "公益活动新闻稿.docx",
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    size: 96_000,
+  },
+  {
+    name: "安全生产月活动总结.docx",
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    size: 118_000,
+  },
+  {
+    name: "客户投诉处理机制.docx",
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    size: 112_000,
+  },
+  { name: "数据安全管理制度.pdf", type: "application/pdf", size: 276_000 },
+];
 
-function SectionHeader({
+type LoadingAction = "upload" | "demo" | "checklist" | "report" | "risk" | "index" | null;
+
+function StepPanel({
   eyebrow,
   title,
   description,
+  actions,
+  children,
 }: {
   eyebrow: string;
   title: string;
   description: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="mb-5">
-      <p className="text-sm font-semibold uppercase tracking-[0.16em] text-brand-700">{eyebrow}</p>
-      <h2 className="mt-2 text-2xl font-semibold text-ink-900">{title}</h2>
-      <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-600">{description}</p>
-    </div>
+    <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">{eyebrow}</p>
+          <h2 className="mt-2 text-2xl font-semibold text-ink-900">{title}</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-600">{description}</p>
+        </div>
+        {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
+      </div>
+      <div className="mt-5">{children}</div>
+    </section>
   );
 }
 
 function PrimaryAction({
+  children,
+  onClick,
+  disabled,
+  loading,
+  disabledReason,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  disabledReason?: string;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        disabled={disabled || loading}
+        onClick={onClick}
+        className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:bg-ink-300"
+      >
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+        {children}
+      </button>
+      {disabled && disabledReason ? <p className="mt-2 max-w-[220px] text-xs leading-5 text-ink-500">{disabledReason}</p> : null}
+    </div>
+  );
+}
+
+function SecondaryAction({
   children,
   onClick,
   disabled,
@@ -88,11 +181,31 @@ function PrimaryAction({
       type="button"
       disabled={disabled || loading}
       onClick={onClick}
-      className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:bg-ink-300"
+      className="inline-flex items-center justify-center gap-2 rounded-lg border border-brand-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-800 transition hover:bg-brand-50 disabled:cursor-not-allowed disabled:border-ink-100 disabled:text-ink-300"
     >
-      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
       {children}
     </button>
+  );
+}
+
+function SummaryCard({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className="rounded-lg border border-brand-100 bg-white px-4 py-3 shadow-sm">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">
+        {icon}
+        {label}
+      </div>
+      <p className="mt-2 text-2xl font-semibold text-ink-900">{value}</p>
+    </div>
   );
 }
 
@@ -106,8 +219,11 @@ export default function WorkspacePage() {
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const maxUnlockedStep = useMemo(() => {
-    if (riskFindings.length > 0 || indicatorIndex.length > 0) return 4;
+  const readinessScore = useMemo(() => calculateReadinessScore(disclosureChecklist), [disclosureChecklist]);
+
+  const maxCompletedStep = useMemo(() => {
+    if (indicatorIndex.length > 0) return 5;
+    if (riskFindings.length > 0) return 4;
     if (reportDraft.length > 0) return 3;
     if (disclosureChecklist.length > 0) return 2;
     if (uploadedFiles.length > 0) return 1;
@@ -120,6 +236,7 @@ export default function WorkspacePage() {
     reportDraft,
     riskFindings,
     indicatorIndex,
+    readinessScore,
   };
 
   async function runWithErrorBoundary(action: LoadingAction, callback: () => Promise<void>) {
@@ -134,15 +251,29 @@ export default function WorkspacePage() {
     }
   }
 
+  function resetDownstream() {
+    setDisclosureChecklist([]);
+    setReportDraft([]);
+    setRiskFindings([]);
+    setIndicatorIndex([]);
+  }
+
   async function handleUpload(files: ClassifiableFile[]) {
     await runWithErrorBoundary("upload", async () => {
       const response = await classifyFilesApi(files);
       setUploadedFiles((prev) => [...prev, ...response.files]);
-      setDisclosureChecklist([]);
-      setReportDraft([]);
-      setRiskFindings([]);
-      setIndicatorIndex([]);
-      setCurrentStep(1);
+      resetDownstream();
+      setCurrentStep(0);
+    });
+  }
+
+  function handleLoadSampleProject() {
+    void runWithErrorBoundary("demo", async () => {
+      const now = new Date().toISOString();
+      const response = await classifyFilesApi(SAMPLE_FILES.map((file) => ({ ...file, uploadedAt: now })));
+      setUploadedFiles(response.files);
+      resetDownstream();
+      setCurrentStep(0);
     });
   }
 
@@ -205,25 +336,14 @@ export default function WorkspacePage() {
             </Link>
             <h1 className="mt-2 text-xl font-semibold text-ink-900">AI ESG 报告工作台</h1>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-sm text-ink-600">
-            <span className="rounded-full bg-brand-50 px-3 py-1 font-medium text-brand-800">
-              文件 {uploadedFiles.length}
-            </span>
-            <span className="rounded-full bg-brand-50 px-3 py-1 font-medium text-brand-800">
-              清单 {disclosureChecklist.length}
-            </span>
-            <span className="rounded-full bg-brand-50 px-3 py-1 font-medium text-brand-800">
-              风险 {riskFindings.length}
-            </span>
-            <button
-              type="button"
-              onClick={handleReset}
-              className="inline-flex items-center gap-2 rounded-lg border border-ink-100 bg-white px-3 py-1.5 font-semibold text-ink-700 transition hover:border-brand-200 hover:bg-brand-50"
-            >
-              <RefreshCw className="h-4 w-4" />
-              重置
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleReset}
+            className="inline-flex w-fit items-center gap-2 rounded-lg border border-ink-100 bg-white px-3 py-2 text-sm font-semibold text-ink-700 transition hover:border-brand-200 hover:bg-brand-50"
+          >
+            <RefreshCw className="h-4 w-4" />
+            重置项目
+          </button>
         </div>
       </header>
 
@@ -234,146 +354,125 @@ export default function WorkspacePage() {
               <Database className="h-4 w-4 text-brand-700" />
               工作流步骤
             </div>
-            <Stepper
-              steps={steps}
-              currentStep={currentStep}
-              maxCompletedStep={maxUnlockedStep}
-              onStepClick={setCurrentStep}
-            />
+            <Stepper steps={steps} currentStep={currentStep} maxCompletedStep={maxCompletedStep} onStepClick={setCurrentStep} />
           </div>
         </aside>
 
-        <section className="min-w-0">
+        <section className="min-w-0 space-y-5">
           {error ? (
-            <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
           ) : null}
 
+          <div className="grid gap-3 md:grid-cols-5">
+            <SummaryCard icon={<FileText className="h-3.5 w-3.5 text-brand-700" />} label="文件数" value={uploadedFiles.length} />
+            <SummaryCard icon={<ClipboardList className="h-3.5 w-3.5 text-brand-700" />} label="披露项目" value={disclosureChecklist.length} />
+            <SummaryCard icon={<BarChart3 className="h-3.5 w-3.5 text-brand-700" />} label="报告章节" value={reportDraft.length} />
+            <SummaryCard icon={<ShieldCheck className="h-3.5 w-3.5 text-brand-700" />} label="风险数" value={riskFindings.length} />
+            <SummaryCard icon={<Download className="h-3.5 w-3.5 text-brand-700" />} label="准备度评分" value={disclosureChecklist.length > 0 ? readinessScore.totalScore : "-"} />
+          </div>
+
           {currentStep === 0 ? (
-            <div>
-              <SectionHeader
-                eyebrow="Step 1"
-                title="上传资料"
-                description="MVP 阶段不会真实解析文件正文，而是基于文件名和 MIME 类型完成 mock 分类。后续可替换为 PDF/Word/Excel 解析与向量检索。"
-              />
+            <StepPanel
+              eyebrow="Step 1"
+              title="上传资料"
+              description="上传 ESG 相关文件，或加载内置示例企业资料。MVP 阶段仅基于文件名和 MIME 类型进行 mock 分类，不会解析文件正文。"
+              actions={
+                <SecondaryAction onClick={handleLoadSampleProject} loading={loadingAction === "demo"} disabled={loadingAction !== null}>
+                  加载示例企业资料
+                </SecondaryAction>
+              }
+            >
               <div className="space-y-5">
-                <FileUploader onUpload={handleUpload} disabled={loadingAction === "upload"} />
+                <FileUploader onUpload={handleUpload} disabled={loadingAction !== null} />
                 <UploadedFileList files={uploadedFiles} />
               </div>
-            </div>
+            </StepPanel>
           ) : null}
 
           {currentStep === 1 ? (
-            <div>
-              <SectionHeader
-                eyebrow="Step 2"
-                title="生成 ESG 披露清单"
-                description="系统根据上传文件的资料类别，生成 E/S/G 议题覆盖判断、缺失内容、责任部门和风险等级。"
-              />
-              <div className="mb-5 flex flex-wrap items-center gap-3">
+            <StepPanel
+              eyebrow="Step 2"
+              title="披露清单"
+              description="系统根据已分类资料判断 E/S/G 议题覆盖情况、缺失内容、责任部门和风险等级。本迭代不调整披露清单标准来源。"
+              actions={
                 <PrimaryAction
                   onClick={handleGenerateChecklist}
                   disabled={uploadedFiles.length === 0}
+                  disabledReason="请先上传资料或加载示例企业资料。"
                   loading={loadingAction === "checklist"}
                 >
                   生成披露清单
                 </PrimaryAction>
-                <button
-                  type="button"
-                  onClick={() => setCurrentStep(0)}
-                  className="inline-flex items-center justify-center rounded-lg border border-ink-100 bg-white px-4 py-2.5 text-sm font-semibold text-ink-700 transition hover:border-brand-200 hover:bg-brand-50"
-                >
-                  继续上传资料
-                </button>
+              }
+            >
+              <div className="space-y-5">
+                {disclosureChecklist.length > 0 ? <ReadinessScoreCard score={readinessScore} /> : null}
+                <DisclosureChecklist checklist={disclosureChecklist} />
               </div>
-              <DisclosureChecklist checklist={disclosureChecklist} />
-            </div>
+            </StepPanel>
           ) : null}
 
           {currentStep === 2 ? (
-            <div>
-              <SectionHeader
-                eyebrow="Step 3"
-                title="生成报告初稿"
-                description="报告以模板、资料类别和披露状态为依据生成，缺失议题会保留审慎表述，不编造具体数据。"
-              />
-              <div className="mb-5 flex flex-wrap items-center gap-3">
+            <StepPanel
+              eyebrow="Step 3"
+              title="报告初稿"
+              description="生成九章 ESG 报告初稿，并为每个章节展示相关披露议题、依据材料和置信度。资料不足时使用审慎表述。"
+              actions={
                 <PrimaryAction
                   onClick={handleGenerateReport}
                   disabled={disclosureChecklist.length === 0}
+                  disabledReason="请先生成披露清单。"
                   loading={loadingAction === "report"}
                 >
                   生成报告初稿
                 </PrimaryAction>
-                <button
-                  type="button"
-                  onClick={() => setCurrentStep(1)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-ink-100 bg-white px-4 py-2.5 text-sm font-semibold text-ink-700 transition hover:border-brand-200 hover:bg-brand-50"
-                >
-                  查看披露清单
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
-              <ReportDraftViewer sections={reportDraft} />
-            </div>
+              }
+            >
+              <ReportDraftViewer sections={reportDraft} checklist={disclosureChecklist} />
+            </StepPanel>
           ) : null}
 
           {currentStep === 3 ? (
-            <div>
-              <SectionHeader
-                eyebrow="Step 4"
-                title="风险校验"
-                description="mock 风险检查会识别夸大表述、环境章节量化数据缺口、高风险披露缺口和关键数据一致性提示。"
-              />
-              <div className="mb-5 flex flex-wrap items-center gap-3">
+            <StepPanel
+              eyebrow="Step 4"
+              title="风险校验"
+              description="检查夸大表述、证据缺失、量化数据缺失、高风险披露缺口和关键数据一致性提醒。"
+              actions={
                 <PrimaryAction
                   onClick={handleCheckRisks}
                   disabled={reportDraft.length === 0}
+                  disabledReason="请先生成报告初稿。"
                   loading={loadingAction === "risk"}
                 >
                   风险校验
                 </PrimaryAction>
-                <button
-                  type="button"
-                  disabled={riskFindings.length === 0}
-                  onClick={() => setCurrentStep(4)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-ink-100 bg-white px-4 py-2.5 text-sm font-semibold text-ink-700 transition hover:border-brand-200 hover:bg-brand-50 disabled:cursor-not-allowed disabled:text-ink-300"
-                >
-                  前往导出
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
+              }
+            >
               <RiskCheckPanel findings={riskFindings} />
-            </div>
+            </StepPanel>
           ) : null}
 
           {currentStep === 4 ? (
-            <div>
-              <SectionHeader
-                eyebrow="Step 5"
-                title="导出结果"
-                description="生成指标索引表后，可复制报告正文，或下载包含上传文件、清单、报告、风险和索引的 JSON / Markdown 文件。"
-              />
-              <div className="mb-5 flex flex-wrap items-center gap-3">
+            <StepPanel
+              eyebrow="Step 5"
+              title="导出结果"
+              description="生成指标索引表后，可导出 ESG 报告 Markdown、完整项目 JSON、披露清单 CSV、风险校验 CSV 和指标索引 CSV。"
+              actions={
                 <PrimaryAction
                   onClick={handleGenerateIndicatorIndex}
-                  disabled={reportDraft.length === 0}
+                  disabled={riskFindings.length === 0}
+                  disabledReason="请先完成风险校验。"
                   loading={loadingAction === "index"}
                 >
                   生成指标索引表
                 </PrimaryAction>
-                <button
-                  type="button"
-                  onClick={() => setCurrentStep(3)}
-                  className="inline-flex items-center justify-center rounded-lg border border-ink-100 bg-white px-4 py-2.5 text-sm font-semibold text-ink-700 transition hover:border-brand-200 hover:bg-brand-50"
-                >
-                  返回风险校验
-                </button>
-              </div>
+              }
+            >
               <div className="space-y-5">
                 <IndicatorIndexTable indicators={indicatorIndex} />
                 <ExportPanel snapshot={snapshot} />
               </div>
-            </div>
+            </StepPanel>
           ) : null}
         </section>
       </div>

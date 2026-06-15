@@ -14,16 +14,39 @@
 - 自动识别缺失数据和高风险表述
 - 自动生成指标索引表
 - 支持证据链追溯和后续审阅
+- 评估 ESG 披露准备度并给出下一步补充材料建议
 
 ## 当前 MVP 功能
 
 - Landing Page：展示产品定位、核心能力和入口按钮
 - Workspace 五步流程：
-  - Step 1：上传 PDF / Word / Excel / PPT / TXT / Markdown 文件，并基于文件名 mock 分类
-  - Step 2：生成 E/S/G 披露清单
-  - Step 3：生成中文 ESG 报告初稿
-  - Step 4：执行 mock 风险校验
-  - Step 5：生成指标索引表，复制正文，下载 JSON / Markdown
+  - Step 1：上传 PDF / Word / Excel / PPT / TXT / Markdown 文件，或加载示例企业资料，并基于文件名 mock 分类
+  - Step 2：生成 E/S/G 披露清单，并展示 ESG 披露准备度评分
+  - Step 3：生成中文 ESG 报告初稿，按章节展示相关披露议题、依据材料和置信度
+  - Step 4：执行增强 mock 风险校验，识别夸大表述、证据缺失、量化数据缺失、高风险披露缺口和数据一致性提醒
+  - Step 5：生成指标索引表，复制正文，导出 Markdown / JSON / CSV
+- 证据链追溯：
+  - 报告章节包含 `evidenceFileIds`、`evidenceNotes` 和 `confidenceLevel`
+  - 系统根据文件分类和文件名关键词为环境、社会、治理、供应链、数据安全等内容绑定支撑材料
+  - 资料不足时使用“后续将进一步完善相关数据统计和披露机制”等审慎表述
+- 报告章节置信度：
+  - 根据章节证据数量、相关披露议题状态和高风险缺失项综合判断为“高 / 中 / 低”
+- ESG 披露准备度评分：
+  - 已覆盖 = 100，部分覆盖 = 50，缺失 = 0
+  - 输出总分、E/S/G 分数、覆盖统计、高风险缺失项和建议补充材料
+- 示例项目 Demo：
+  - 一键加载员工培训、董事会治理、反商业贿赂、用电用水、供应商、公益、安全生产、客户投诉、数据安全等示例资料
+  - 加载后仅自动分类并展示文件，不会自动生成披露清单
+- 导出能力：
+  - `esg-report-draft.md`
+  - `esg-project-export.json`
+  - `disclosure-checklist.csv`
+  - `risk-findings.csv`
+  - `indicator-index.csv`
+  - CSV 文件包含 UTF-8 BOM，便于 Excel 正确显示中文
+- 工作台 UI：
+  - 侧边步骤条、状态摘要、每步说明、主操作按钮、结果区域和前置步骤禁用原因提示
+  - 保持简洁卡片式 B2B SaaS 风格，主色为深绿色 / 蓝绿色
 - Next.js API Route Handlers：
   - `/api/esg/classify`
   - `/api/esg/disclosure-checklist`
@@ -60,6 +83,7 @@
     │   ├── ExportPanel.tsx
     │   ├── FileUploader.tsx
     │   ├── IndicatorIndexTable.tsx
+    │   ├── ReadinessScoreCard.tsx
     │   ├── ReportDraftViewer.tsx
     │   ├── RiskCheckPanel.tsx
     │   ├── StatusBadge.tsx
@@ -69,6 +93,7 @@
     │   └── disclosureTopics.ts
     ├── lib
     │   ├── apiClient.ts
+    │   ├── esg/readinessScore.ts
     │   ├── export.ts
     │   └── utils.ts
     ├── services
@@ -166,8 +191,11 @@ generateIndicatorIndex(reportDraft, checklist)
 - ESG 评级差距分析
 - 供应链 ESG 问卷自动回复
 
-## 当前实现说明
+## 当前限制
 
-- 文件不会上传到云端，也不会持久化存储，浏览器只发送文件名、类型、大小和上传时间用于 mock 分类。
-- 报告初稿不会编造具体 ESG 指标数值，缺失议题会提示后续完善数据统计和管理机制。
+- 尚未真实解析文件内容。浏览器只发送文件名、类型、大小和上传时间用于 mock 分类。
+- 尚未接入真实大模型 API。报告、风险和索引均由本地规则与模板模拟生成。
+- 披露清单仍是 MVP 规则逻辑，尚未引入 GRI / ISSB / 国内交易所标准映射。
+- 暂不支持正式 Word/PDF 导出。
+- 报告初稿不会编造具体 ESG 指标数值、奖项、评级、处罚或认证；缺失议题会提示后续完善数据统计和管理机制。
 - 风险校验为规则模拟，用于展示产品交互和未来真实合规模型接入方式。

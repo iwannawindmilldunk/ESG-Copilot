@@ -43,12 +43,20 @@ export interface DisclosureItem {
   riskLevel: RiskLevel;
 }
 
+export interface EvidenceNote {
+  fileId: string;
+  fileName: string;
+  reason: string;
+}
+
 export interface ReportSection {
   id: string;
   title: string;
   content: string;
   relatedDisclosureItems: string[];
   evidenceFileIds: string[];
+  evidenceNotes: EvidenceNote[];
+  confidenceLevel: "高" | "中" | "低";
 }
 
 export interface RiskFinding {
@@ -69,12 +77,25 @@ export interface IndicatorIndex {
   notes: string;
 }
 
+export interface ReadinessScoreResult {
+  totalScore: number;
+  eScore: number;
+  sScore: number;
+  gScore: number;
+  coveredCount: number;
+  partialCount: number;
+  missingCount: number;
+  highRiskMissingCount: number;
+  recommendedNextMaterials: string[];
+}
+
 export interface ESGProjectSnapshot {
   uploadedFiles: UploadedFile[];
   disclosureChecklist: DisclosureItem[];
   reportDraft: ReportSection[];
   riskFindings: RiskFinding[];
   indicatorIndex: IndicatorIndex[];
+  readinessScore?: ReadinessScoreResult;
 }
 
 export interface DisclosureTopicTemplate {

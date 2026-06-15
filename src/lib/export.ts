@@ -1,4 +1,6 @@
-import type { ESGProjectSnapshot, ReportSection } from "@/types/esg";
+import type { DisclosureItem, ESGProjectSnapshot, IndicatorIndex, ReportSection, RiskFinding } from "@/types/esg";
+
+const UTF8_BOM = "\ufeff";
 
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -19,59 +21,113 @@ export function formatDateTime(iso: string): string {
   }).format(new Date(iso));
 }
 
+function disclosureTopicMap(snapshot: ESGProjectSnapshot): Map<string, string> {
+  return new Map(snapshot.disclosureChecklist.map((item) => [item.id, item.topic]));
+}
+
 export function reportToPlainText(reportDraft: ReportSection[]): string {
   return reportDraft.map((section) => `${section.title}\n\n${section.content}`).join("\n\n");
 }
 
 export function snapshotToMarkdown(snapshot: ESGProjectSnapshot): string {
-  const files = snapshot.uploadedFiles
-    .map((file) => `- ${file.name} (${file.type}, ${formatBytes(file.size)}, ${file.category})`)
-    .join("\n");
+  const topicById = disclosureTopicMap(snapshot);
+  const sections = snapshot.reportDraft
+    .map((section) => {
+      const topics = section.relatedDisclosureItems.map((id) => topicById.get(id) ?? id).join("、") || "无";
+      const evidence =
+        section.evidenceNotes.length > 0
+          ? section.evidenceNotes.map((note) => `- ${note.fileName}：${note.reason}`).join("\n")
+          : "- 暂无绑定材料";
 
-  const checklist = snapshot.disclosureChecklist
-    .map(
-      (item) =>
-        `| ${item.category} | ${item.topic} | ${item.status} | ${item.riskLevel} | ${item.responsibleDepartment} |`,
-    )
-    .join("\n");
+      return `## ${section.title}
+
+${section.content}
+
+**相关披露议题**：${topics}
+
+**依据材料**
+
+${evidence}
+
+**置信度**：${section.confidenceLevel}`;
+    })
+    .join("\n\n");
 
   const risks = snapshot.riskFindings
     .map((risk) => `- **${risk.riskLevel} / ${risk.type}** ${risk.sectionTitle}：${risk.description} 建议：${risk.suggestion}`)
     .join("\n");
+  const readiness = snapshot.readinessScore
+    ? `总分：${snapshot.readinessScore.totalScore} / 100；E：${snapshot.readinessScore.eScore}，S：${snapshot.readinessScore.sScore}，G：${snapshot.readinessScore.gScore}；高风险缺失项：${snapshot.readinessScore.highRiskMissingCount}`
+    : "暂无准备度评分。";
 
-  const indicators = snapshot.indicatorIndex
-    .map(
-      (indicator) =>
-        `| ${indicator.category} | ${indicator.indicator} | ${indicator.disclosureLocation} | ${indicator.status} | ${indicator.notes} |`,
-    )
-    .join("\n");
+  return `# ESG 报告初稿
 
-  return `# AI ESG 报告生成结果
+> 本文件由 MVP mock 工作流生成，正式披露前需进行资料复核、数据校验和合规审阅。
 
-## 上传文件
+## 披露准备度评分
 
-${files || "暂无上传文件"}
+${readiness}
 
-## 披露清单
+${sections || "暂无报告章节。"}
 
-| 类别 | 披露议题 | 状态 | 风险等级 | 责任部门 |
-| --- | --- | --- | --- | --- |
-${checklist}
+## 风险校验摘要
 
-## 报告初稿
-
-${reportToPlainText(snapshot.reportDraft)}
-
-## 风险校验
-
-${risks || "暂无风险发现"}
-
-## 指标索引表
-
-| 类别 | 指标 | 披露位置 | 状态 | 备注 |
-| --- | --- | --- | --- | --- |
-${indicators}
+${risks || "暂无风险校验结果。"}
 `;
+}
+
+function csvEscape(value: string | number): string {
+  const text = String(value ?? "");
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+
+  return text;
+}
+
+function toCsv(rows: Array<Array<string | number>>): string {
+  return `${UTF8_BOM}${rows.map((row) => row.map(csvEscape).join(",")).join("\r\n")}`;
+}
+
+export function disclosureChecklistToCsv(checklist: DisclosureItem[]): string {
+  return toCsv([
+    ["类别", "披露议题", "披露要求", "材料状态", "缺失内容", "责任部门", "风险等级"],
+    ...checklist.map((item) => [
+      item.category,
+      item.topic,
+      item.requirement,
+      item.status,
+      item.missingContent,
+      item.responsibleDepartment,
+      item.riskLevel,
+    ]),
+  ]);
+}
+
+export function riskFindingsToCsv(findings: RiskFinding[]): string {
+  return toCsv([
+    ["风险等级", "风险类型", "涉及章节", "风险描述", "建议修改方式"],
+    ...findings.map((finding) => [
+      finding.riskLevel,
+      finding.type,
+      finding.sectionTitle,
+      finding.description,
+      finding.suggestion,
+    ]),
+  ]);
+}
+
+export function indicatorIndexToCsv(indicators: IndicatorIndex[]): string {
+  return toCsv([
+    ["类别", "指标", "披露位置", "状态", "备注"],
+    ...indicators.map((indicator) => [
+      indicator.category,
+      indicator.indicator,
+      indicator.disclosureLocation,
+      indicator.status,
+      indicator.notes,
+    ]),
+  ]);
 }
 
 export function downloadTextFile(fileName: string, content: string, mimeType: string): void {

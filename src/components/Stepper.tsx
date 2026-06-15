@@ -22,19 +22,18 @@ export function Stepper({ steps, currentStep, maxCompletedStep, onStepClick }: S
       {steps.map((step, index) => {
         const active = index === currentStep;
         const completed = index < maxCompletedStep;
-        const accessible = index <= maxCompletedStep;
+        const upcoming = index > maxCompletedStep;
 
         return (
           <button
             key={step.title}
             type="button"
-            disabled={!accessible}
             onClick={() => onStepClick(index)}
             className={cn(
               "flex w-full items-start gap-3 rounded-lg border p-3 text-left transition",
               active && "border-brand-300 bg-brand-50 text-brand-900",
-              !active && accessible && "border-transparent bg-white text-ink-700 hover:border-brand-100 hover:bg-brand-50/60",
-              !accessible && "cursor-not-allowed border-transparent bg-white/60 text-ink-300",
+              !active && !upcoming && "border-transparent bg-white text-ink-700 hover:border-brand-100 hover:bg-brand-50/60",
+              !active && upcoming && "border-transparent bg-white/70 text-ink-500 hover:border-brand-100 hover:bg-brand-50/60",
             )}
           >
             <span
@@ -42,8 +41,8 @@ export function Stepper({ steps, currentStep, maxCompletedStep, onStepClick }: S
                 "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
                 active && "bg-brand-700 text-white",
                 completed && !active && "bg-brand-100 text-brand-800",
-                !active && !completed && accessible && "bg-ink-100 text-ink-600",
-                !accessible && "bg-ink-100 text-ink-300",
+                !active && !completed && !upcoming && "bg-ink-100 text-ink-600",
+                !active && upcoming && "bg-ink-100 text-ink-500",
               )}
             >
               {completed ? <Check className="h-4 w-4" /> : index + 1}
