@@ -13,13 +13,46 @@ type FileUploaderProps = {
 
 const ACCEPTED_FILE_TYPES = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.md";
 
-function toClassifiableFiles(files: FileList | File[]): ClassifiableFile[] {
-  return Array.from(files).map((file) => ({
+function isTextLike(file: File): boolean {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  return file.type.startsWith("text/") || extension === "txt" || extension === "md" || extension === "csv";
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(index, index + chunkSize));
+  }
+
+  return window.btoa(binary);
+}
+
+async function toClassifiableFile(file: File): Promise<ClassifiableFile> {
+  const base = {
     name: file.name,
     type: file.type,
     size: file.size,
     uploadedAt: new Date().toISOString(),
-  }));
+  };
+
+  if (isTextLike(file)) {
+    return {
+      ...base,
+      contentText: await file.text(),
+    };
+  }
+
+  return {
+    ...base,
+    contentBase64: arrayBufferToBase64(await file.arrayBuffer()),
+  };
+}
+
+async function toClassifiableFiles(files: FileList | File[]): Promise<ClassifiableFile[]> {
+  return Promise.all(Array.from(files).map(toClassifiableFile));
 }
 
 export function FileUploader({ onUpload, disabled = false }: FileUploaderProps) {
@@ -28,7 +61,7 @@ export function FileUploader({ onUpload, disabled = false }: FileUploaderProps) 
   const [uploading, setUploading] = useState(false);
 
   async function handleFiles(files: FileList | File[]) {
-    const payload = toClassifiableFiles(files);
+    const payload = await toClassifiableFiles(files);
     if (payload.length === 0) return;
 
     setUploading(true);

@@ -1,7 +1,9 @@
 import type {
   ClassifiableFile,
   DisclosureItem,
+  ESGProjectSnapshot,
   IndicatorIndex,
+  ParsedDocument,
   ReportSection,
   RiskFinding,
   UploadedFile,
@@ -28,13 +30,25 @@ export function classifyFilesApi(files: ClassifiableFile[]) {
   return postJson<{ files: UploadedFile[] }, { files: ClassifiableFile[] }>("/api/esg/classify", { files });
 }
 
-export function generateDisclosureChecklistApi(files: UploadedFile[], selectedStandardIds: string[]) {
+export function parseDocumentsApi(files: ClassifiableFile[]) {
+  return postJson<
+    { files: UploadedFile[]; parsedDocuments: ParsedDocument[] },
+    { files: ClassifiableFile[] }
+  >("/api/esg/documents/parse", { files });
+}
+
+export function generateDisclosureChecklistApi(
+  files: UploadedFile[],
+  selectedStandardIds: string[],
+  parsedDocuments: ParsedDocument[] = [],
+) {
   return postJson<
     { checklist: DisclosureItem[] },
-    { files: UploadedFile[]; selectedStandardIds: string[] }
+    { files: UploadedFile[]; selectedStandardIds: string[]; parsedDocuments: ParsedDocument[] }
   >("/api/esg/disclosure-checklist", {
     files,
     selectedStandardIds,
+    parsedDocuments,
   });
 }
 
@@ -57,4 +71,21 @@ export function generateIndicatorIndexApi(reportDraft: ReportSection[], checklis
     { indicatorIndex: IndicatorIndex[] },
     { reportDraft: ReportSection[]; checklist: DisclosureItem[] }
   >("/api/esg/indicator-index", { reportDraft, checklist });
+}
+
+export async function exportWordApi(snapshot: ESGProjectSnapshot): Promise<Blob> {
+  const response = await fetch("/api/esg/export-word", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(snapshot),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Word 导出失败，请稍后重试。");
+  }
+
+  return response.blob();
 }

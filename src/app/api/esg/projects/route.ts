@@ -1,19 +1,18 @@
 import { NextResponse } from "next/server";
 
-import { generateDisclosureChecklist } from "@/services/aiService";
+import { createProject } from "@/services/projectStore";
 import type { ParsedDocument, UploadedFile } from "@/types/esg";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
-    files?: UploadedFile[];
+    name?: string;
+    companyName?: string;
+    reportingYear?: string;
     selectedStandardIds?: string[];
+    uploadedFiles?: UploadedFile[];
     parsedDocuments?: ParsedDocument[];
   };
-  const checklist = generateDisclosureChecklist(
-    body.files ?? [],
-    body.selectedStandardIds ?? [],
-    body.parsedDocuments ?? [],
-  );
+  const storedProject = createProject(body);
 
-  return NextResponse.json({ checklist });
+  return NextResponse.json(storedProject);
 }

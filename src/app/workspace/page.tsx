@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Database,
   Download,
+  ExternalLink,
   FileText,
   Loader2,
   Play,
@@ -20,6 +21,7 @@ import { DisclosureChecklist } from "@/components/DisclosureChecklist";
 import { ExportPanel } from "@/components/ExportPanel";
 import { FileUploader } from "@/components/FileUploader";
 import { IndicatorIndexTable } from "@/components/IndicatorIndexTable";
+import { ParsedEvidencePanel } from "@/components/ParsedEvidencePanel";
 import { ReadinessScoreCard } from "@/components/ReadinessScoreCard";
 import { ReportDraftViewer } from "@/components/ReportDraftViewer";
 import { RiskCheckPanel } from "@/components/RiskCheckPanel";
@@ -32,10 +34,10 @@ import {
 } from "@/lib/esg/standards";
 import {
   checkReportRisksApi,
-  classifyFilesApi,
   generateDisclosureChecklistApi,
   generateIndicatorIndexApi,
   generateReportDraftApi,
+  parseDocumentsApi,
 } from "@/lib/apiClient";
 import { calculateReadinessScore } from "@/lib/esg/readinessScore";
 import type {
@@ -43,6 +45,7 @@ import type {
   DisclosureItem,
   ESGProjectSnapshot,
   IndicatorIndex,
+  ParsedDocument,
   ReportSection,
   RiskFinding,
   UploadedFile,
@@ -76,39 +79,65 @@ const SAMPLE_FILES: ClassifiableFile[] = [
     name: "2025年度员工培训统计表.xlsx",
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     size: 182_000,
+    contentText:
+      "部门\t员工总数\t培训人次\t培训小时数\t安全培训覆盖率\n生产部\t320\t640\t1280\t96%\n研发部\t120\t240\t720\t92%\n公司已开展员工培训、职业健康与安全培训和关键岗位能力提升。",
   },
-  { name: "董事会治理制度.pdf", type: "application/pdf", size: 324_000 },
+  {
+    name: "董事会治理制度.pdf",
+    type: "application/pdf",
+    size: 324_000,
+    contentText:
+      "董事会负责监督公司可持续发展相关风险和机遇，管理层定期向董事会汇报 ESG 重点议题、风险管理流程和整改进展。公司设立 ESG 工作小组，统筹数据口径、报告边界和证据留存。",
+  },
   {
     name: "反商业贿赂管理办法.docx",
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     size: 146_000,
+    contentText:
+      "公司建立反商业贿赂及反腐败制度，覆盖员工、供应商和业务伙伴。报告期内组织廉洁培训，要求关键供应商签署廉洁承诺，并设置举报渠道和调查处理流程。",
   },
   {
     name: "2025年度用电用水统计表.xlsx",
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     size: 208_000,
+    contentText:
+      "月份\t外购电力(kWh)\t用水量(立方米)\t一般废弃物(吨)\n1月\t56000\t1300\t4.2\n2月\t52000\t1210\t3.8\n公司统计能源使用、水资源利用、温室气体排放相关活动数据，后续需补充范围一、范围二排放核算方法。",
   },
   {
     name: "供应商管理制度.docx",
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     size: 130_000,
+    contentText:
+      "公司对供应商实施准入评估、年度绩效评价和高风险供应商整改跟踪，采购部负责供应链安全、社会责任评估和供应商廉洁承诺管理。",
   },
   {
     name: "公益活动新闻稿.docx",
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     size: 96_000,
+    contentText:
+      "公司开展社区公益和志愿服务活动，员工参与环保宣传、社区帮扶和乡村振兴项目。公益投入金额和受益人数仍需由财务部和品牌公关部确认。",
   },
   {
     name: "安全生产月活动总结.docx",
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     size: 118_000,
+    contentText:
+      "安全生产月期间，公司组织职业健康与安全培训、应急演练和隐患排查。安全生产部跟踪隐患整改完成率，并记录工伤事故数量和培训覆盖情况。",
   },
   {
     name: "客户投诉处理机制.docx",
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     size: 112_000,
+    contentText:
+      "公司建立客户投诉处理机制，覆盖产品和服务质量、客户权益保护和隐私投诉处理。客服部定期汇总客户投诉数量、关闭率和改进措施。",
   },
-  { name: "数据安全管理制度.pdf", type: "application/pdf", size: 276_000 },
+  {
+    name: "数据安全管理制度.pdf",
+    type: "application/pdf",
+    size: 276_000,
+    contentText:
+      "公司建立数据安全和客户隐私保护制度，明确个人信息处理、访问权限、数据泄露事件响应和安全培训要求。报告期内数据安全事件数量需由信息技术部确认。",
+  },
 ];
 
 type LoadingAction = "upload" | "demo" | "checklist" | "report" | "risk" | "index" | null;
@@ -257,17 +286,19 @@ function StandardSelector({
       <div className="grid gap-3 md:grid-cols-2">
         {standardSelectionOptions.map((option) => {
           const checked = selectedStandardIds.includes(option.id);
+          const sources = "sources" in option ? option.sources : [];
 
           return (
-            <label
+            <div
               key={option.id}
-              className="flex cursor-pointer gap-3 rounded-lg border border-ink-100 bg-[#f7fbf9] p-4 transition hover:border-brand-200 hover:bg-brand-50"
+              className="flex gap-3 rounded-lg border border-ink-100 bg-[#f7fbf9] p-4 transition hover:border-brand-200 hover:bg-brand-50"
             >
               <input
                 type="checkbox"
                 checked={checked}
                 onChange={() => onToggle(option.id)}
                 className="mt-1 h-4 w-4 rounded border-ink-300 text-brand-700 focus:ring-brand-600"
+                aria-label={`选择${option.name}`}
               />
               <span className="min-w-0">
                 <span className="flex flex-wrap items-center gap-2">
@@ -278,8 +309,41 @@ function StandardSelector({
                 </span>
                 <span className="mt-1 block text-xs font-medium text-brand-700">{option.issuer}</span>
                 <span className="mt-2 block text-sm leading-6 text-ink-600">{option.description}</span>
+                {"groundingNote" in option ? (
+                  <span className="mt-2 block rounded-md bg-white px-3 py-2 text-xs leading-5 text-ink-600 ring-1 ring-ink-100">
+                    {option.groundingNote}
+                  </span>
+                ) : null}
+                {sources.length > 0 ? (
+                  <span className="mt-3 flex flex-wrap gap-2">
+                    {sources.map((source) => (
+                      <span key={source.id} className="inline-flex flex-wrap gap-2">
+                        <a
+                          href={source.officialUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md border border-brand-200 bg-white px-2.5 py-1 text-xs font-semibold text-brand-800 transition hover:bg-brand-50"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          官网：{source.label}
+                        </a>
+                        {source.localPath ? (
+                          <a
+                            href={source.localPath}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 rounded-md border border-ink-100 bg-white px-2.5 py-1 text-xs font-semibold text-ink-700 transition hover:bg-ink-100"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            本地原文
+                          </a>
+                        ) : null}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
               </span>
-            </label>
+            </div>
           );
         })}
       </div>
@@ -291,6 +355,7 @@ export default function WorkspacePage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedStandardIds, setSelectedStandardIds] = useState<string[]>(["cn-exchange-lite"]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [parsedDocuments, setParsedDocuments] = useState<ParsedDocument[]>([]);
   const [disclosureChecklist, setDisclosureChecklist] = useState<DisclosureItem[]>([]);
   const [reportDraft, setReportDraft] = useState<ReportSection[]>([]);
   const [riskFindings, setRiskFindings] = useState<RiskFinding[]>([]);
@@ -316,6 +381,7 @@ export default function WorkspacePage() {
   const snapshot: ESGProjectSnapshot = {
     selectedStandardIds: effectiveSelectedStandardIds,
     uploadedFiles,
+    parsedDocuments,
     disclosureChecklist,
     reportDraft,
     riskFindings,
@@ -358,8 +424,9 @@ export default function WorkspacePage() {
 
   async function handleUpload(files: ClassifiableFile[]) {
     await runWithErrorBoundary("upload", async () => {
-      const response = await classifyFilesApi(files);
+      const response = await parseDocumentsApi(files);
       setUploadedFiles((prev) => [...prev, ...response.files]);
+      setParsedDocuments((prev) => [...prev, ...response.parsedDocuments]);
       resetDownstream();
       setCurrentStep(0);
     });
@@ -368,8 +435,9 @@ export default function WorkspacePage() {
   function handleLoadSampleProject() {
     void runWithErrorBoundary("demo", async () => {
       const now = new Date().toISOString();
-      const response = await classifyFilesApi(SAMPLE_FILES.map((file) => ({ ...file, uploadedAt: now })));
+      const response = await parseDocumentsApi(SAMPLE_FILES.map((file) => ({ ...file, uploadedAt: now })));
       setUploadedFiles(response.files);
+      setParsedDocuments(response.parsedDocuments);
       resetDownstream();
       setCurrentStep(0);
     });
@@ -377,7 +445,7 @@ export default function WorkspacePage() {
 
   function handleGenerateChecklist() {
     void runWithErrorBoundary("checklist", async () => {
-      const response = await generateDisclosureChecklistApi(uploadedFiles, selectedStandardIds);
+      const response = await generateDisclosureChecklistApi(uploadedFiles, selectedStandardIds, parsedDocuments);
       setDisclosureChecklist(response.checklist);
       setReportDraft([]);
       setRiskFindings([]);
@@ -416,6 +484,7 @@ export default function WorkspacePage() {
   function handleReset() {
     setSelectedStandardIds(["cn-exchange-lite"]);
     setUploadedFiles([]);
+    setParsedDocuments([]);
     setDisclosureChecklist([]);
     setReportDraft([]);
     setRiskFindings([]);
@@ -477,7 +546,7 @@ export default function WorkspacePage() {
               <StepPanel
                 eyebrow="Step 1"
                 title="上传资料"
-                description="上传 ESG 相关文件，或加载内置示例企业资料。MVP 阶段仅基于文件名和 MIME 类型进行 mock 分类，不会解析文件正文。"
+                description="上传 ESG 相关文件，或加载内置示例企业资料。系统会尽量提取正文、表格或幻灯片文本，生成可追溯 EvidenceChunk；暂不稳定支持 PDF 正文解析。"
                 actions={
                   <SecondaryAction onClick={handleLoadSampleProject} loading={loadingAction === "demo"} disabled={loadingAction !== null}>
                     加载示例企业资料
@@ -486,7 +555,8 @@ export default function WorkspacePage() {
               >
                 <div className="space-y-5">
                   <FileUploader onUpload={handleUpload} disabled={loadingAction !== null} />
-                  <UploadedFileList files={uploadedFiles} />
+                  <UploadedFileList files={uploadedFiles} parsedDocuments={parsedDocuments} />
+                  <ParsedEvidencePanel parsedDocuments={parsedDocuments} />
                 </div>
               </StepPanel>
             </>
@@ -496,7 +566,7 @@ export default function WorkspacePage() {
             <StepPanel
               eyebrow="Step 2"
               title="披露清单"
-              description="系统根据所选披露标准、统一议题映射和已分类资料，判断 E/S/G 议题覆盖情况、缺失内容、建议指标、责任部门和风险等级。"
+              description="系统根据所选披露标准、统一议题映射和证据片段，判断 E/S/G 议题覆盖情况、缺失内容、建议指标、责任部门和风险等级。"
               actions={
                 <PrimaryAction
                   onClick={handleGenerateChecklist}
@@ -561,7 +631,7 @@ export default function WorkspacePage() {
             <StepPanel
               eyebrow="Step 5"
               title="导出结果"
-              description="生成指标索引表后，可导出 ESG 报告 Markdown、完整项目 JSON、披露清单 CSV、风险校验 CSV 和指标索引 CSV。"
+              description="生成指标索引表后，可导出 Word 工作底稿、ESG 报告 Markdown、完整项目 JSON、披露清单 CSV、风险校验 CSV 和指标索引 CSV。"
               actions={
                 <PrimaryAction
                   onClick={handleGenerateIndicatorIndex}

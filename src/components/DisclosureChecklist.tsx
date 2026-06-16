@@ -1,5 +1,6 @@
 import type { DisclosureItem, UploadedFile } from "@/types/esg";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Download, ExternalLink } from "lucide-react";
 
 type DisclosureChecklistProps = {
   checklist: DisclosureItem[];
@@ -18,6 +19,16 @@ function unique(values: string[]): string[] {
   return Array.from(new Set(values));
 }
 
+function uniqueSourceLinks(item: DisclosureItem): Array<DisclosureItem["standards"][number]["sourceLinks"][number]> {
+  const byKey = new Map<string, DisclosureItem["standards"][number]["sourceLinks"][number]>();
+
+  item.standards.flatMap((standard) => standard.sourceLinks).forEach((link) => {
+    byKey.set(`${link.label}-${link.officialUrl}-${link.localPath ?? ""}`, link);
+  });
+
+  return Array.from(byKey.values());
+}
+
 export function DisclosureChecklist({ checklist, files }: DisclosureChecklistProps) {
   if (checklist.length === 0) {
     return (
@@ -31,13 +42,14 @@ export function DisclosureChecklist({ checklist, files }: DisclosureChecklistPro
 
   return (
     <div className="table-scroll overflow-x-auto rounded-lg border border-ink-100 bg-white">
-      <table className="min-w-[1680px] divide-y divide-ink-100">
+      <table className="min-w-[1880px] divide-y divide-ink-100">
         <thead className="bg-ink-100/60">
           <tr>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">统一披露议题</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">类别</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">对应标准</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">对应条款/编号</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">来源/原文</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">披露要求摘要</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">材料状态</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">缺失内容</th>
@@ -52,6 +64,10 @@ export function DisclosureChecklist({ checklist, files }: DisclosureChecklistPro
             const evidenceFiles = item.evidenceFileIds.map((fileId) => filesById.get(fileId)?.name ?? fileId);
             const standardRefs = item.standards.map(formatStandardReference);
             const standardCodes = unique(item.standards.map((standard) => standard.code));
+            const sourceReferences = unique(item.standards.flatMap((standard) => standard.sourceReferences));
+            const sourceLinks = uniqueSourceLinks(item);
+            const evidenceSnippets = item.evidenceSnippets ?? [];
+            const missingEvidenceTypes = item.missingEvidenceTypes ?? [];
 
             return (
               <tr key={item.id} className="align-top">
@@ -61,6 +77,37 @@ export function DisclosureChecklist({ checklist, files }: DisclosureChecklistPro
                 </td>
                 <td className="w-72 px-4 py-4 text-sm leading-6 text-ink-700">{standardRefs.join(" / ")}</td>
                 <td className="w-44 px-4 py-4 text-sm leading-6 text-ink-700">{standardCodes.join("；")}</td>
+                <td className="w-80 px-4 py-4 text-sm leading-6 text-ink-700">
+                  <div className="space-y-2">
+                    <p>{sourceReferences.join("；")}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {sourceLinks.map((link) => (
+                        <span key={`${link.label}-${link.officialUrl}-${link.localPath ?? ""}`} className="inline-flex gap-1">
+                          <a
+                            href={link.officialUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 rounded-md border border-brand-200 px-2 py-0.5 text-xs font-semibold text-brand-800 hover:bg-brand-50"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            官网
+                          </a>
+                          {link.localPath ? (
+                            <a
+                              href={link.localPath}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 rounded-md border border-ink-100 px-2 py-0.5 text-xs font-semibold text-ink-700 hover:bg-ink-100"
+                            >
+                              <Download className="h-3 w-3" />
+                              原文
+                            </a>
+                          ) : null}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </td>
                 <td className="w-96 px-4 py-4 text-sm leading-6 text-ink-700">{item.requirement}</td>
                 <td className="px-4 py-4">
                   <StatusBadge value={item.status} />
@@ -72,7 +119,21 @@ export function DisclosureChecklist({ checklist, files }: DisclosureChecklistPro
                   <StatusBadge value={item.riskLevel} />
                 </td>
                 <td className="w-64 px-4 py-4 text-sm leading-6 text-ink-700">
-                  {evidenceFiles.length > 0 ? evidenceFiles.join("、") : "暂无匹配"}
+                  <div className="space-y-2">
+                    <p>{evidenceFiles.length > 0 ? evidenceFiles.join("、") : "暂无匹配"}</p>
+                    {evidenceSnippets.length > 0 ? (
+                      <div className="space-y-1">
+                        {evidenceSnippets.slice(0, 2).map((snippet) => (
+                          <p key={snippet.chunkId} className="rounded-md bg-brand-50 px-2 py-1 text-xs leading-5 text-brand-900">
+                            {snippet.fileName} / {snippet.locationLabel}：{snippet.text}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                    {missingEvidenceTypes.length > 0 ? (
+                      <p className="text-xs text-amber-700">缺失证据类型：{missingEvidenceTypes.join("、")}</p>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             );

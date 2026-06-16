@@ -31,7 +31,7 @@ export function ReportDraftViewer({ sections, checklist = [] }: ReportDraftViewe
               <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-ink-500">
                 <span className="inline-flex items-center gap-1">
                   <FileCheck2 className="h-4 w-4 text-brand-600" />
-                  议题 {relatedTopics.length} 项 / 材料 {section.evidenceFileIds.length} 份
+                  议题 {relatedTopics.length} 项 / 材料 {section.evidenceFileIds.length} 份 / 证据 {(section.evidenceChunkIds ?? []).length} 条
                 </span>
                 <StatusBadge value={section.confidenceLevel} />
               </div>
@@ -57,11 +57,12 @@ export function ReportDraftViewer({ sections, checklist = [] }: ReportDraftViewe
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-500">依据材料 / 标准条目</p>
                 <div className="mt-2 space-y-2">
                   {section.evidenceNotes.length > 0 ? (
-                    section.evidenceNotes.map((note) => (
-                      <div key={`${section.id}-${note.fileId}`} className="text-sm leading-6 text-ink-700">
+                    section.evidenceNotes.map((note, index) => (
+                      <div key={`${section.id}-${note.chunkId ?? note.fileId}-${index}`} className="text-sm leading-6 text-ink-700">
                         <span className="inline-flex items-center gap-1 font-semibold text-ink-900">
                           <Link2 className="h-3.5 w-3.5 text-brand-600" />
                           {note.fileName}
+                          {note.locationLabel ? ` / ${note.locationLabel}` : ""}
                         </span>
                         <span className="ml-1 text-ink-600">{note.reason}</span>
                       </div>

@@ -29,13 +29,26 @@ function disclosureTopicMap(snapshot: ESGProjectSnapshot): Map<string, string> {
 function selectedStandardsMarkdown(snapshot: ESGProjectSnapshot): string {
   return (
     DISCLOSURE_STANDARDS.filter((standard) => snapshot.selectedStandardIds.includes(standard.id))
-      .map((standard) => `- ${standard.name}（${standard.issuer}）`)
+      .map((standard) => {
+        const sources = standard.sources
+          .map(
+            (source) =>
+              `    - ${source.label}：官网 ${source.officialUrl}${source.localPath ? `；本地原文 ${source.localPath}` : ""}`,
+          )
+          .join("\n");
+
+        return `- ${standard.name}（${standard.issuer}）：${standard.groundingNote}\n${sources}`;
+      })
       .join("\n") || "暂无选择标准"
   );
 }
 
 function formatChecklistStandardRefs(item: DisclosureItem): string {
   return item.standards.map((standard) => `${standard.code} ${standard.title}`).join(" / ");
+}
+
+function formatChecklistSourceRefs(item: DisclosureItem): string {
+  return Array.from(new Set(item.standards.flatMap((standard) => standard.sourceReferences))).join(" / ");
 }
 
 export function reportToPlainText(reportDraft: ReportSection[]): string {
@@ -56,10 +69,15 @@ export function snapshotToMarkdown(snapshot: ESGProjectSnapshot): string {
   const files = snapshot.uploadedFiles
     .map((file) => `- ${file.name} (${file.type}, ${formatBytes(file.size)}, ${file.category})`)
     .join("\n");
+  const evidenceAppendix = (snapshot.parsedDocuments ?? [])
+    .flatMap((document) =>
+      document.chunks.slice(0, 12).map((chunk) => `- ${document.fileName} / ${chunk.locationLabel} / ${chunk.category}：${chunk.text}`),
+    )
+    .join("\n");
   const checklist = snapshot.disclosureChecklist
     .map(
       (item) =>
-        `| ${item.category} | ${item.topic} | ${formatChecklistStandardRefs(item)} | ${item.status} | ${item.riskLevel} | ${item.suggestedMetrics.join("、")} | ${item.responsibleDepartment} | ${item.evidenceFileIds.join("、") || "暂无匹配"} |`,
+        `| ${item.category} | ${item.topic} | ${formatChecklistStandardRefs(item)} | ${formatChecklistSourceRefs(item)} | ${item.status} | ${item.riskLevel} | ${item.suggestedMetrics.join("、")} | ${item.responsibleDepartment} | ${item.evidenceFileIds.join("、") || "暂无匹配"} | ${(item.evidenceSnippets ?? []).map((snippet) => `${snippet.fileName}/${snippet.locationLabel}`).join("；") || "暂无证据片段"} |`,
     )
     .join("\n");
   const sections = snapshot.reportDraft
@@ -105,9 +123,9 @@ ${files || "暂无上传文件"}
 
 ## 披露清单
 
-| 类别 | 统一披露议题 | 对应标准条目 | 状态 | 风险等级 | 建议指标 | 责任部门 | 依据文件 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-${checklist || "| - | 暂无 | - | - | - | - | - | - |"}
+| 类别 | 统一披露议题 | 对应标准条目 | 来源引用 | 状态 | 风险等级 | 建议指标 | 责任部门 | 依据文件 | 证据片段 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+${checklist || "| - | 暂无 | - | - | - | - | - | - | - | - |"}
 
 ## 披露准备度评分
 
@@ -118,6 +136,10 @@ ${sections || "暂无报告章节。"}
 ## 风险校验摘要
 
 ${risks || "暂无风险校验结果。"}
+
+## 证据来源附录
+
+${evidenceAppendix || "暂无证据片段。"}
 `;
 }
 
@@ -136,11 +158,26 @@ function toCsv(rows: Array<Array<string | number>>): string {
 
 export function disclosureChecklistToCsv(checklist: DisclosureItem[]): string {
   return toCsv([
-    ["类别", "统一披露议题", "对应标准条目", "披露要求", "材料状态", "缺失内容", "建议指标", "责任部门", "风险等级", "依据文件ID"],
+    [
+      "类别",
+      "统一披露议题",
+      "对应标准条目",
+      "来源引用",
+      "披露要求",
+      "材料状态",
+      "缺失内容",
+      "建议指标",
+      "责任部门",
+      "风险等级",
+      "依据文件ID",
+      "证据片段ID",
+      "缺失证据类型",
+    ],
     ...checklist.map((item) => [
       item.category,
       item.topic,
       formatChecklistStandardRefs(item),
+      formatChecklistSourceRefs(item),
       item.requirement,
       item.status,
       item.missingContent,
@@ -148,6 +185,8 @@ export function disclosureChecklistToCsv(checklist: DisclosureItem[]): string {
       item.responsibleDepartment,
       item.riskLevel,
       item.evidenceFileIds.join("、"),
+      (item.evidenceChunkIds ?? []).join("、"),
+      (item.missingEvidenceTypes ?? []).join("、"),
     ]),
   ]);
 }
