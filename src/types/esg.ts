@@ -32,7 +32,7 @@ export type ProjectStatus = "draft" | "reviewing" | "exported";
 
 export type ProjectRole = "admin" | "editor" | "viewer";
 
-export type LLMProviderType = "mock" | "openai" | "anthropic" | "private";
+export type LLMProviderType = "mock" | "openai-compatible";
 
 export interface ClassifiableFile {
   name: string;
@@ -50,6 +50,8 @@ export interface UploadedFile {
   size: number;
   uploadedAt: string;
   category: DocumentCategory;
+  storageBucket?: string;
+  storagePath?: string;
 }
 
 export interface Standard {
@@ -300,6 +302,7 @@ export interface Project {
     role: ProjectRole;
   }>;
   status: ProjectStatus;
+  backendMode?: "supabase" | "memory";
   createdAt: string;
   updatedAt: string;
 }
@@ -313,7 +316,7 @@ export interface LLMGenerationResult<T> {
 }
 
 // Future persistence mapping:
-// companies -> projects -> report_periods -> uploaded_files -> parsed_documents -> evidence_chunks
+// companies -> projects -> uploaded_files -> parsed_documents -> evidence_chunks
 // -> disclosure_items -> report_sections -> risk_findings -> indicator_indexes.
 // These TypeScript contracts intentionally mirror future PostgreSQL/Supabase table boundaries.
 export type FutureProjectRecord = Project;

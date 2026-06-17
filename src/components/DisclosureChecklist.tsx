@@ -1,10 +1,13 @@
-import type { DisclosureItem, UploadedFile } from "@/types/esg";
+"use client";
+
+import type { ApplicabilityStatus, DisclosureItem, ReviewStatus, UploadedFile } from "@/types/esg";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Download, ExternalLink } from "lucide-react";
 
 type DisclosureChecklistProps = {
   checklist: DisclosureItem[];
   files: UploadedFile[];
+  onUpdateItem?: (itemId: string, patch: Partial<DisclosureItem>) => void;
 };
 
 function formatStandardReference(standard: DisclosureItem["standards"][number]): string {
@@ -29,7 +32,10 @@ function uniqueSourceLinks(item: DisclosureItem): Array<DisclosureItem["standard
   return Array.from(byKey.values());
 }
 
-export function DisclosureChecklist({ checklist, files }: DisclosureChecklistProps) {
+const applicabilityOptions: ApplicabilityStatus[] = ["待判断", "适用", "不适用"];
+const reviewStatusOptions: ReviewStatus[] = ["待审阅", "审阅中", "已确认", "需补充"];
+
+export function DisclosureChecklist({ checklist, files, onUpdateItem }: DisclosureChecklistProps) {
   if (checklist.length === 0) {
     return (
       <div className="rounded-lg border border-ink-100 bg-white p-5 text-sm text-ink-500">
@@ -42,7 +48,7 @@ export function DisclosureChecklist({ checklist, files }: DisclosureChecklistPro
 
   return (
     <div className="table-scroll overflow-x-auto rounded-lg border border-ink-100 bg-white">
-      <table className="min-w-[1880px] divide-y divide-ink-100">
+      <table className="min-w-[2180px] divide-y divide-ink-100">
         <thead className="bg-ink-100/60">
           <tr>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">统一披露议题</th>
@@ -57,6 +63,7 @@ export function DisclosureChecklist({ checklist, files }: DisclosureChecklistPro
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">建议责任部门</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">风险</th>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">依据文件</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-ink-600">人工审阅</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-100">
@@ -133,6 +140,60 @@ export function DisclosureChecklist({ checklist, files }: DisclosureChecklistPro
                     {missingEvidenceTypes.length > 0 ? (
                       <p className="text-xs text-amber-700">缺失证据类型：{missingEvidenceTypes.join("、")}</p>
                     ) : null}
+                  </div>
+                </td>
+                <td className="w-72 px-4 py-4 text-sm leading-6 text-ink-700">
+                  <div className="space-y-2">
+                    <select
+                      value={item.applicability ?? "待判断"}
+                      disabled={!onUpdateItem}
+                      onChange={(event) =>
+                        onUpdateItem?.(item.id, { applicability: event.target.value as ApplicabilityStatus })
+                      }
+                      className="w-full rounded-md border border-ink-100 bg-white px-2 py-1 text-xs text-ink-700"
+                    >
+                      {applicabilityOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={item.reviewStatus ?? "待审阅"}
+                      disabled={!onUpdateItem}
+                      onChange={(event) => onUpdateItem?.(item.id, { reviewStatus: event.target.value as ReviewStatus })}
+                      className="w-full rounded-md border border-ink-100 bg-white px-2 py-1 text-xs text-ink-700"
+                    >
+                      {reviewStatusOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      defaultValue={item.responsibleDepartment}
+                      disabled={!onUpdateItem}
+                      onBlur={(event) =>
+                        event.currentTarget.value !== item.responsibleDepartment
+                          ? onUpdateItem?.(item.id, { responsibleDepartment: event.currentTarget.value })
+                          : undefined
+                      }
+                      className="w-full rounded-md border border-ink-100 bg-white px-2 py-1 text-xs text-ink-700"
+                      aria-label={`${item.topic} 责任部门`}
+                    />
+                    <textarea
+                      defaultValue={item.reviewNote ?? ""}
+                      disabled={!onUpdateItem}
+                      onBlur={(event) =>
+                        event.currentTarget.value !== (item.reviewNote ?? "")
+                          ? onUpdateItem?.(item.id, { reviewNote: event.currentTarget.value })
+                          : undefined
+                      }
+                      className="min-h-16 w-full rounded-md border border-ink-100 bg-white px-2 py-1 text-xs text-ink-700"
+                      placeholder="审阅备注"
+                      aria-label={`${item.topic} 审阅备注`}
+                    />
                   </div>
                 </td>
               </tr>

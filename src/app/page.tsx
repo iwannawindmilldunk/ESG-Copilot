@@ -12,12 +12,12 @@ import {
 const features = [
   {
     title: "上传企业资料，自动识别 ESG 内容",
-    description: "支持 PDF、Word、Excel、PPT、TXT、Markdown 等常见材料，MVP 阶段基于文件名进行资料类别判断。",
+    description: "支持 PDF、Word、Excel、PPT、TXT、Markdown 等常见材料，生成可追溯 EvidenceChunk。",
     icon: Files,
   },
   {
     title: "自动生成披露清单",
-    description: "内置 E/S/G 披露议题，按当前资料覆盖程度标注已覆盖、部分覆盖和缺失。",
+    description: "基于标准条款、统一议题和证据片段判断已覆盖、部分覆盖和缺失。",
     icon: ListChecks,
   },
   {
@@ -32,7 +32,7 @@ const features = [
   },
   {
     title: "支持证据链追溯",
-    description: "报告章节和披露议题保留关联文件 ID，为后续审阅、补证和数据库持久化预留结构。",
+    description: "报告章节和披露议题保留证据片段、文件位置和标准来源，支持审阅和补证。",
     icon: FileSearch,
   },
 ];
@@ -100,7 +100,7 @@ export default function Home() {
               <div className="rounded-lg border border-ink-100 p-4">
                 <p className="text-sm font-semibold text-ink-900">导出格式</p>
                 <p className="mt-2 text-3xl font-semibold text-brand-700">2+</p>
-                <p className="mt-1 text-sm text-ink-500">JSON / Markdown / 复制正文</p>
+                <p className="mt-1 text-sm text-ink-500">Word / JSON / Markdown / CSV</p>
               </div>
               <div className="md:col-span-3 rounded-lg border border-ink-100 bg-ink-100/40 p-4">
                 <div className="grid gap-3 md:grid-cols-3">
@@ -124,7 +124,7 @@ export default function Home() {
             <h2 className="mt-3 text-3xl font-semibold text-ink-900">围绕 ESG 报告生产的关键环节</h2>
           </div>
           <p className="max-w-2xl text-sm leading-6 text-ink-600">
-            当前版本以可交互 MVP 为目标，先打通流程和数据结构，后续可替换真实文件解析、数据库和大模型 API。
+            当前版本已打通项目级后端、证据链、Word 导出和 Supabase 持久化 fallback，可继续接入真实客户试点数据。
           </p>
         </div>
 

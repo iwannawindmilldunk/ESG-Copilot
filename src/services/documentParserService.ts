@@ -265,6 +265,63 @@ async function parsePptx(documentId: string, file: UploadedFile, buffer: Buffer)
   };
 }
 
+async function parsePdf(documentId: string, file: UploadedFile, buffer: Buffer): Promise<ParsedDocument> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useSystemFonts: true,
+  });
+  const pdf = await loadingTask.promise;
+  const chunks: EvidenceChunk[] = [];
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const text = textContent.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .filter(Boolean)
+      .join(" ");
+
+    splitText(text).forEach((chunkText, chunkIndex) => {
+      chunks.push(
+        makeChunk({
+          documentId,
+          file,
+          locationType: "page",
+          locationLabel: `第 ${pageNumber} 页${chunkIndex > 0 ? ` / 片段 ${chunkIndex + 1}` : ""}`,
+          text: chunkText,
+        }),
+      );
+    });
+  }
+
+  return {
+    id: documentId,
+    fileId: file.id,
+    fileName: file.name,
+    fileType: file.type,
+    category: file.category,
+    parserStatus: chunks.length > 0 ? "parsed" : "partial",
+    parserMessages:
+      chunks.length > 0
+        ? ["PDF 已按页提取文本证据片段；扫描件和图片文字需后续接入 OCR。"]
+        : ["PDF 未提取到可用文本，可能是扫描件或图片型 PDF，需后续接入 OCR。"],
+    chunks:
+      chunks.length > 0
+        ? chunks
+        : [
+            makeChunk({
+              documentId,
+              file,
+              locationType: "metadata",
+              locationLabel: "PDF 元数据",
+              text: `${file.name}；资料类别：${file.category}；未提取到文本，建议补充可复制文本 PDF 或 OCR 结果。`,
+            }),
+          ],
+    metadata: { pageCount: pdf.numPages, textLength: chunks.reduce((total, chunk) => total + chunk.text.length, 0) },
+  };
+}
+
 function parsePlainText(documentId: string, file: UploadedFile, text: string, message = "文本内容已提取。"): ParsedDocument {
   const chunks = makeTextChunks(documentId, file, text, "段落");
 
@@ -312,11 +369,7 @@ async function parseSingleDocument(file: UploadedFile, source?: ClassifiableFile
     }
 
     if (extension === "pdf") {
-      return makeFallbackDocument(
-        file,
-        "unsupported",
-        "PDF 已上传并进入证据库，但当前版本未内置稳定 PDF 正文解析器；后续可接入 pdf.js、OCR 或企业文档解析服务。",
-      );
+      return await parsePdf(documentId, file, buffer);
     }
 
     return makeFallbackDocument(file, "unsupported", "该文件类型暂未支持正文解析，已保留元数据作为证据入口。");

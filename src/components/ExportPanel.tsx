@@ -3,7 +3,7 @@
 import { Check, Copy, Download } from "lucide-react";
 import { useState } from "react";
 
-import { exportWordApi } from "@/lib/apiClient";
+import { exportProjectWordApi, exportWordApi } from "@/lib/apiClient";
 import {
   disclosureChecklistToCsv,
   downloadTextFile,
@@ -16,9 +16,10 @@ import type { ESGProjectSnapshot } from "@/types/esg";
 
 type ExportPanelProps = {
   snapshot: ESGProjectSnapshot;
+  projectId?: string;
 };
 
-export function ExportPanel({ snapshot }: ExportPanelProps) {
+export function ExportPanel({ snapshot, projectId }: ExportPanelProps) {
   const [copied, setCopied] = useState(false);
   const [wordExporting, setWordExporting] = useState(false);
   const hasReport = snapshot.reportDraft.length > 0;
@@ -61,7 +62,7 @@ export function ExportPanel({ snapshot }: ExportPanelProps) {
 
     setWordExporting(true);
     try {
-      const blob = await exportWordApi(snapshot);
+      const blob = projectId ? await exportProjectWordApi(projectId) : await exportWordApi(snapshot);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;

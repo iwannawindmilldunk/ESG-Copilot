@@ -3,7 +3,7 @@ import { getStandardClausesByItemIds } from "@/lib/esg/standardClauses";
 import { getStandardName, getStandardSourceLinks, resolveSelectedStandardIds } from "@/lib/esg/standards";
 import { TOPIC_MAPPINGS } from "@/lib/esg/topicMappings";
 import { flattenEvidenceChunks } from "@/services/documentParserService";
-import { summarizeEvidenceSnippets } from "@/services/llmService";
+import { generateEvidenceBoundParagraphWithLLM, summarizeEvidenceSnippets } from "@/services/llmService";
 import type {
   ClassifiableFile,
   DisclosureItem,
@@ -652,6 +652,51 @@ export function generateReportDraft(files: UploadedFile[], checklist: Disclosure
         "建议下一阶段优先建立 ESG 数据台账，按统一议题沉淀数据口径、责任部门、证据文件和复核流程。对于高风险缺失项，应先补齐制度、记录或量化指标，再进入正式报告撰写和法务审阅环节。",
     },
   ];
+}
+
+export async function generateReportDraftWithLLM(
+  files: UploadedFile[],
+  checklist: DisclosureItem[],
+): Promise<ReportSection[]> {
+  const draft = generateReportDraft(files, checklist);
+  const checklistById = new Map(checklist.map((item) => [item.id, item]));
+
+  return Promise.all(
+    draft.map(async (section) => {
+      const relatedItems = section.relatedDisclosureItems
+        .map((itemId) => checklistById.get(itemId))
+        .filter((item): item is DisclosureItem => Boolean(item));
+      const evidenceSnippets = evidenceSnippetsFromItems(relatedItems);
+
+      if (evidenceSnippets.length === 0 || section.id === "section-overview") {
+        return section;
+      }
+
+      const generated = await generateEvidenceBoundParagraphWithLLM({
+        title: section.title,
+        coveredTopics: relatedItems.filter((item) => item.status !== "缺失").map((item) => item.topic),
+        missingTopics: relatedItems.filter((item) => item.status === "缺失").map((item) => item.topic),
+        evidenceSnippets,
+        fallbackText: section.content,
+      });
+
+      return {
+        ...section,
+        content: generated.data,
+        evidenceNotes:
+          generated.warnings.length > 0
+            ? [
+                ...section.evidenceNotes,
+                {
+                  fileId: "llm-provider",
+                  fileName: generated.provider,
+                  reason: `${generated.model}${generated.fallbackUsed ? " fallback" : ""}：${generated.warnings.join("；") || "已完成证据约束段落生成。"}`,
+                },
+              ]
+            : section.evidenceNotes,
+      };
+    }),
+  );
 }
 
 export function checkReportRisks(reportDraft: ReportSection[], checklist: DisclosureItem[]): RiskFinding[] {

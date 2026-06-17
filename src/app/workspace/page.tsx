@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { DisclosureChecklist } from "@/components/DisclosureChecklist";
 import { ExportPanel } from "@/components/ExportPanel";
@@ -33,11 +33,15 @@ import {
   resolveSelectedStandardIds,
 } from "@/lib/esg/standards";
 import {
-  checkReportRisksApi,
-  generateDisclosureChecklistApi,
-  generateIndicatorIndexApi,
-  generateReportDraftApi,
-  parseDocumentsApi,
+  attachProjectDocumentsApi,
+  checkProjectRisksApi,
+  createProjectApi,
+  generateProjectChecklistApi,
+  generateProjectIndicatorIndexApi,
+  generateProjectReportApi,
+  updateProjectApi,
+  updateProjectChecklistItemApi,
+  type StoredProjectResponse,
 } from "@/lib/apiClient";
 import { calculateReadinessScore } from "@/lib/esg/readinessScore";
 import type {
@@ -46,6 +50,7 @@ import type {
   ESGProjectSnapshot,
   IndicatorIndex,
   ParsedDocument,
+  Project,
   ReportSection,
   RiskFinding,
   UploadedFile,
@@ -140,7 +145,7 @@ const SAMPLE_FILES: ClassifiableFile[] = [
   },
 ];
 
-type LoadingAction = "upload" | "demo" | "checklist" | "report" | "risk" | "index" | null;
+type LoadingAction = "project" | "upload" | "demo" | "checklist" | "report" | "risk" | "index" | null;
 
 const materialityLabels = {
   impact: "影响重要性",
@@ -353,6 +358,7 @@ function StandardSelector({
 
 export default function WorkspacePage() {
   const [currentStep, setCurrentStep] = useState(0);
+  const [project, setProject] = useState<Project | null>(null);
   const [selectedStandardIds, setSelectedStandardIds] = useState<string[]>(["cn-exchange-lite"]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [parsedDocuments, setParsedDocuments] = useState<ParsedDocument[]>([]);
@@ -408,26 +414,71 @@ export default function WorkspacePage() {
     setIndicatorIndex([]);
   }
 
-  function handleToggleStandard(standardId: string) {
-    resetDownstream();
-    setSelectedStandardIds((prev) => {
-      if (standardId === COMPREHENSIVE_STANDARD_ID) {
-        return prev.includes(COMPREHENSIVE_STANDARD_ID) ? [] : [COMPREHENSIVE_STANDARD_ID];
-      }
+  function applyStoredProject(response: StoredProjectResponse) {
+    setProject(response.project);
+    setSelectedStandardIds(response.snapshot.selectedStandardIds);
+    setUploadedFiles(response.snapshot.uploadedFiles);
+    setParsedDocuments(response.snapshot.parsedDocuments ?? []);
+    setDisclosureChecklist(response.snapshot.disclosureChecklist);
+    setReportDraft(response.snapshot.reportDraft);
+    setRiskFindings(response.snapshot.riskFindings);
+    setIndicatorIndex(response.snapshot.indicatorIndex);
+  }
 
-      const withoutComprehensive = prev.filter((id) => id !== COMPREHENSIVE_STANDARD_ID);
-      return withoutComprehensive.includes(standardId)
-        ? withoutComprehensive.filter((id) => id !== standardId)
-        : [...withoutComprehensive, standardId];
+  async function ensureProject(): Promise<Project> {
+    if (project) return project;
+
+    const response = await createProjectApi({
+      companyName: "示例企业",
+      reportingYear: "2025",
+      selectedStandardIds,
+    });
+    applyStoredProject(response);
+    return response.project;
+  }
+
+  useEffect(() => {
+    if (project) return;
+
+    void runWithErrorBoundary("project", async () => {
+      const response = await createProjectApi({
+        companyName: "示例企业",
+        reportingYear: "2025",
+        selectedStandardIds,
+      });
+      applyStoredProject(response);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function nextStandardIds(current: string[], standardId: string): string[] {
+    if (standardId === COMPREHENSIVE_STANDARD_ID) {
+      return current.includes(COMPREHENSIVE_STANDARD_ID) ? [] : [COMPREHENSIVE_STANDARD_ID];
+    }
+
+    const withoutComprehensive = current.filter((id) => id !== COMPREHENSIVE_STANDARD_ID);
+    return withoutComprehensive.includes(standardId)
+      ? withoutComprehensive.filter((id) => id !== standardId)
+      : [...withoutComprehensive, standardId];
+  }
+
+  function handleToggleStandard(standardId: string) {
+    const next = nextStandardIds(selectedStandardIds, standardId);
+    setSelectedStandardIds(next);
+    resetDownstream();
+
+    void runWithErrorBoundary("project", async () => {
+      const currentProject = await ensureProject();
+      const response = await updateProjectApi(currentProject.id, { selectedStandardIds: next });
+      applyStoredProject(response);
     });
   }
 
   async function handleUpload(files: ClassifiableFile[]) {
     await runWithErrorBoundary("upload", async () => {
-      const response = await parseDocumentsApi(files);
-      setUploadedFiles((prev) => [...prev, ...response.files]);
-      setParsedDocuments((prev) => [...prev, ...response.parsedDocuments]);
-      resetDownstream();
+      const currentProject = await ensureProject();
+      const response = await attachProjectDocumentsApi(currentProject.id, files);
+      applyStoredProject(response);
       setCurrentStep(0);
     });
   }
@@ -435,53 +486,60 @@ export default function WorkspacePage() {
   function handleLoadSampleProject() {
     void runWithErrorBoundary("demo", async () => {
       const now = new Date().toISOString();
-      const response = await parseDocumentsApi(SAMPLE_FILES.map((file) => ({ ...file, uploadedAt: now })));
-      setUploadedFiles(response.files);
-      setParsedDocuments(response.parsedDocuments);
-      resetDownstream();
+      const currentProject = await ensureProject();
+      const response = await attachProjectDocumentsApi(currentProject.id, SAMPLE_FILES.map((file) => ({ ...file, uploadedAt: now })));
+      applyStoredProject(response);
       setCurrentStep(0);
     });
   }
 
   function handleGenerateChecklist() {
     void runWithErrorBoundary("checklist", async () => {
-      const response = await generateDisclosureChecklistApi(uploadedFiles, selectedStandardIds, parsedDocuments);
-      setDisclosureChecklist(response.checklist);
-      setReportDraft([]);
-      setRiskFindings([]);
-      setIndicatorIndex([]);
+      const currentProject = await ensureProject();
+      const response = await generateProjectChecklistApi(currentProject.id);
+      applyStoredProject(response);
       setCurrentStep(1);
     });
   }
 
   function handleGenerateReport() {
     void runWithErrorBoundary("report", async () => {
-      const response = await generateReportDraftApi(uploadedFiles, disclosureChecklist);
-      setReportDraft(response.reportDraft);
-      setRiskFindings([]);
-      setIndicatorIndex([]);
+      const currentProject = await ensureProject();
+      const response = await generateProjectReportApi(currentProject.id);
+      applyStoredProject(response);
       setCurrentStep(2);
     });
   }
 
   function handleCheckRisks() {
     void runWithErrorBoundary("risk", async () => {
-      const response = await checkReportRisksApi(reportDraft, disclosureChecklist);
-      setRiskFindings(response.riskFindings);
-      setIndicatorIndex([]);
+      const currentProject = await ensureProject();
+      const response = await checkProjectRisksApi(currentProject.id);
+      applyStoredProject(response);
       setCurrentStep(3);
     });
   }
 
   function handleGenerateIndicatorIndex() {
     void runWithErrorBoundary("index", async () => {
-      const response = await generateIndicatorIndexApi(reportDraft, disclosureChecklist);
-      setIndicatorIndex(response.indicatorIndex);
+      const currentProject = await ensureProject();
+      const response = await generateProjectIndicatorIndexApi(currentProject.id);
+      applyStoredProject(response);
       setCurrentStep(4);
     });
   }
 
+  function handleUpdateChecklistItem(itemId: string, patch: Partial<DisclosureItem>) {
+    void runWithErrorBoundary("checklist", async () => {
+      const currentProject = await ensureProject();
+      const response = await updateProjectChecklistItemApi(currentProject.id, itemId, patch);
+      applyStoredProject(response);
+      setCurrentStep(1);
+    });
+  }
+
   function handleReset() {
+    setProject(null);
     setSelectedStandardIds(["cn-exchange-lite"]);
     setUploadedFiles([]);
     setParsedDocuments([]);
@@ -491,6 +549,15 @@ export default function WorkspacePage() {
     setIndicatorIndex([]);
     setError(null);
     setCurrentStep(0);
+
+    void runWithErrorBoundary("project", async () => {
+      const response = await createProjectApi({
+        companyName: "示例企业",
+        reportingYear: "2025",
+        selectedStandardIds: ["cn-exchange-lite"],
+      });
+      applyStoredProject(response);
+    });
   }
 
   return (
@@ -503,6 +570,11 @@ export default function WorkspacePage() {
               返回首页
             </Link>
             <h1 className="mt-2 text-xl font-semibold text-ink-900">AI ESG 报告工作台</h1>
+            <p className="mt-1 text-xs text-ink-500">
+              {project
+                ? `项目：${project.name} / ${project.backendMode === "supabase" ? "Supabase 持久化" : "本地内存 fallback"} / ${project.status}`
+                : "正在初始化项目..."}
+            </p>
           </div>
           <button
             type="button"
@@ -546,7 +618,7 @@ export default function WorkspacePage() {
               <StepPanel
                 eyebrow="Step 1"
                 title="上传资料"
-                description="上传 ESG 相关文件，或加载内置示例企业资料。系统会尽量提取正文、表格或幻灯片文本，生成可追溯 EvidenceChunk；暂不稳定支持 PDF 正文解析。"
+                description="上传 ESG 相关文件，或加载内置示例企业资料。系统会提取正文、表格、幻灯片或文本型 PDF，生成可追溯 EvidenceChunk。"
                 actions={
                   <SecondaryAction onClick={handleLoadSampleProject} loading={loadingAction === "demo"} disabled={loadingAction !== null}>
                     加载示例企业资料
@@ -582,7 +654,7 @@ export default function WorkspacePage() {
             >
               <div className="space-y-5">
                 {disclosureChecklist.length > 0 ? <ReadinessScoreCard score={readinessScore} /> : null}
-                <DisclosureChecklist checklist={disclosureChecklist} files={uploadedFiles} />
+                <DisclosureChecklist checklist={disclosureChecklist} files={uploadedFiles} onUpdateItem={handleUpdateChecklistItem} />
               </div>
             </StepPanel>
           ) : null}
@@ -645,7 +717,7 @@ export default function WorkspacePage() {
             >
               <div className="space-y-5">
                 <IndicatorIndexTable indicators={indicatorIndex} />
-                <ExportPanel snapshot={snapshot} />
+                <ExportPanel snapshot={snapshot} projectId={project?.id} />
               </div>
             </StepPanel>
           ) : null}

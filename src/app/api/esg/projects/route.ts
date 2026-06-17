@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     uploadedFiles?: UploadedFile[];
     parsedDocuments?: ParsedDocument[];
   };
-  const storedProject = createProject(body);
+  const storedProject = await createProject(body);
 
   return NextResponse.json(storedProject);
 }
